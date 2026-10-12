@@ -112,6 +112,8 @@ header { display: grid; gap: 6px; }
 .knopf:disabled, .knopf.laedt { opacity: 0.6; cursor: default; }
 .knopf.laedt { pointer-events: none; }
 
+.r-gruppe { font-size: 1rem; font-weight: 800; margin: 6px 0 0; }
+.r-gruppe:first-child { margin-top: 0; }
 .jahre { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .setliste { display: grid; gap: 8px; }
 .setkarte { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; text-align: left; color: inherit; cursor: pointer; width: 100%; }
@@ -218,6 +220,7 @@ dialog::backdrop { background: rgb(8 10 16 / 0.7); }
 
   <div class="panel" id="panel-serien" role="tabpanel" aria-labelledby="tab-serien" hidden>
     <div class="jahre" id="r-jahre"></div>
+    <label class="check"><input id="r-meine" type="checkbox"> Nur meine Serien</label>
     <p class="muted" id="r-info"></p>
     <div class="setliste" id="r-serien"></div>
     <div id="r-weitere" style="display:grid;gap:10px" hidden></div>

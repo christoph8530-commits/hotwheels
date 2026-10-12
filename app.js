@@ -13,7 +13,7 @@ const eur = v => v == null || isNaN(v) ? "–" : zahl.format(v) + " €";
 const betrag = s => { const n = parseFloat(String(s || "").replace(/\s/g, "").replace("€", "").replace(",", ".")); return isNaN(n) ? null : Math.round(n * 100) / 100; };
 const DIESES_JAHR = new Date().getFullYear();
 const TEST = new URLSearchParams(location.search).has("test");
-const VERSION = "1.5 (12.10.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
+const VERSION = "1.6 (12.10.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
 
 // Pokémon- und Hot-Wheels-App laufen beide unter christoph8530-commits.github.io und teilen sich damit den Gerätespeicher.
 // Darum hat hier jeder Name die Vorsilbe „hw-“ (auch die Zwischenspeicher), sonst überschreiben sich die Apps gegenseitig.
@@ -76,7 +76,8 @@ const hat = id => inventar().map.get(id)?.anzahl || 0;
 
 // Zähleinheit für Fortschritt und Fehlliste: jede Farbvariante einzeln oder ein Platz pro Serie
 const zaehlt = m => OPT.sth || !(m.marken || []).includes("STH");
-const einheit = m => OPT.varianten ? m.id : `${m.s}|${m.snr}`;
+// eine Einheit je Farbvariante, sonst je Platz der Serie – bei Sonderserien je Modell (mehrere Mixe teilen sich die Plätze, z. B. Pantone 3× 1/6–6/6)
+const einheit = m => OPT.varianten ? m.id : m.x ? `${m.s}|${m.k ?? m.n}` : `${m.s}|${m.snr}`;
 // Serien, die für Fortschritt und Fehlliste zählen: Mainline, auf Wunsch auch Premium und Sonderserien
 const gezaehlteSerien = jahr => (IDX.serienJahr.get(jahr) || []).filter(s => !s.sonder || OPT.sonder);
 function serieStand(si) {
@@ -169,6 +170,7 @@ let tab = "sammlung";
 function alles() {
   if (!IDX) return;
   invCache = null;
+  if ($("s-jahr").value) fuelleSerien();   // Stand der Serien in der Auswahl aktuell halten
   bilanz(); sammlung(); serien(); fehlliste(); verlauf();
 }
 function bilanz() {
@@ -237,30 +239,47 @@ function serien() {
     `<select id="r-anderes" aria-label="Anderes Jahr"><option value="">Anderes Jahr …</option>${weitere.map(j => `<option value="${j}"${j === serienJahr ? " selected" : ""}>${j}</option>`).join("")}</select>`;
   $("r-anderes").onchange = e => { if (e.target.value) { serienJahr = Number(e.target.value); serienJahrVonHand = true; serien(); } };
   const liste = gezaehlteSerien(serienJahr);
+  // nicht gezählte Premium- und Sonderserien des Jahres (bei „mitzählen“ stecken sie schon in liste)
+  const sonder = OPT.sonder ? [] : (IDX.serienJahr.get(serienJahr) || []).filter(s => s.sonder).sort((a, b) => a.name.localeCompare(b.name));
   let h = 0, g = 0, k = 0;
   const karte = (s, st) => {
     const voll = st.gesamt && st.hat === st.gesamt;
-    return `<button type="button" class="setkarte${voll ? " komplett" : ""}" data-serie="${s.i}"><span><strong>${esc(s.name)}</strong>${s.ab < 999 ? ` <span class="muted">· ab #${String(s.ab).padStart(3, "0")}</span>` : ""}</span>
+    return `<button type="button" class="setkarte${voll ? " komplett" : ""}" data-serie="${s.i}"><span><strong>${esc(s.name)}</strong>${s.ab < 999 ? ` <span class="muted">· ab #${String(s.ab).padStart(3, "0")}</span>` : ""}${s.sonder ? ` <span class="chip">Sonderserie</span>` : ""}</span>
       <span class="num">${st.hat} / ${st.gesamt}</span>
       <span class="voll"><span class="balken"><span style="width:${st.gesamt ? st.hat / st.gesamt * 100 : 0}%"></span></span><span>${voll ? "komplett ✓" : `${st.gesamt - st.hat} fehlen`}</span></span></button>`;
   };
-  $("r-serien").innerHTML = liste.map(s => {
-    const st = serieStand(s.i); h += st.hat; g += st.gesamt; if (st.gesamt && st.hat === st.gesamt) k++;
-    return karte(s, st);
-  }).join("") || `<div class="leer">Für ${serienJahr} gibt es keine Mainline-Serien im Verzeichnis.</div>`;
-  $("r-info").textContent = `${serienJahr}: ${h} von ${g} ${OPT.varianten ? "Modellen inkl. Farbvarianten" : "Modellen"}, ${k} von ${liste.length} Serien komplett. Tippe auf eine Serie für die Checkliste.`;
-  // Premium und Sonderserien, die nicht mitzählen: die mit eigenen Autos immer, alle anderen auf Wunsch
-  const sonder = OPT.sonder ? [] : (IDX.serienJahr.get(serienJahr) || []).filter(s => s.sonder).sort((a, b) => a.name.localeCompare(b.name));
-  const eigene = sonder.filter(s => IDX.jeSerie[s.i].some(m => hat(m.id)));
-  const zeigen = alleSonder ? sonder : eigene;
-  $("r-weitere").hidden = !sonder.length;
-  $("r-weitere").innerHTML = sonder.length ? `<h2>Premium und Sonderserien ${serienJahr}</h2>
-    <p class="muted">Zählen nicht zum Fortschritt (umstellbar in den Einstellungen).${eigene.length ? "" : " Aus diesem Jahr hast du noch keine."}</p>
-    <div class="setliste">${zeigen.map(s => karte(s, serieStand(s.i))).join("")}</div>
-    <button type="button" class="knopf" id="r-alle" style="justify-self:start">${alleSonder ? "Nur die mit eigenen Autos zeigen" : `Alle ${sonder.length} anzeigen`}</button>` : "";
-  if (sonder.length) $("r-alle").onclick = () => { alleSonder = !alleSonder; serien(); };
+  // Gruppen: alle Serien mit eigenen Autos oben (Mainline und Sonderserien, meiste Autos zuerst),
+  // dann komplette, dann Mainline-Serien ohne Autos; Sonderserien ohne Autos nur auf Wunsch
+  const gruppen = { angefangen: [], komplett: [], keine: [] };
+  for (const s of liste) {
+    const st = serieStand(s.i); h += st.hat; g += st.gesamt;
+    const voll = st.gesamt && st.hat === st.gesamt; if (voll) k++;
+    gruppen[voll ? "komplett" : hatAutos(s) ? "angefangen" : "keine"].push({ s, st });
+  }
+  for (const s of sonder.filter(hatAutos)) {
+    const st = serieStand(s.i);
+    gruppen[st.gesamt && st.hat === st.gesamt ? "komplett" : "angefangen"].push({ s, st });
+  }
+  gruppen.angefangen.sort((a, b) => b.st.hat / b.st.gesamt - a.st.hat / a.st.gesamt || b.st.hat - a.st.hat);
+  const nurMeine = $("r-meine").checked;
+  const abschnitt = (titel, l) => l.length ? `<h3 class="r-gruppe">${titel} <span class="muted">· ${l.length}</span></h3>${l.map(x => karte(x.s, x.st)).join("")}` : "";
+  $("r-serien").innerHTML = abschnitt("Angefangen", gruppen.angefangen) + abschnitt("Komplett", gruppen.komplett)
+    + (nurMeine ? "" : abschnitt("Noch keine Autos", gruppen.keine))
+    || `<div class="leer">${nurMeine ? `Aus ${serienJahr} hast du noch keine Serie angefangen. Schalte „Nur meine Serien“ aus, um alle zu sehen.` : `Für ${serienJahr} gibt es keine Serien im Verzeichnis.`}</div>`;
+  $("r-info").textContent = `${serienJahr}: ${h} von ${g} ${OPT.varianten ? "Modellen inkl. Farbvarianten" : "Modellen"}, ${k} von ${liste.length} ${OPT.sonder ? "Serien" : "Mainline-Serien"} komplett. Tippe auf eine Serie für die Checkliste.`;
+  // weitere Premium- und Sonderserien ohne eigene Autos: zusammengeklappt
+  const ohne = sonder.filter(s => !hatAutos(s));
+  $("r-weitere").hidden = !ohne.length || nurMeine;
+  $("r-weitere").innerHTML = ohne.length && !nurMeine ? `<h3 class="r-gruppe">Weitere Premium- und Sonderserien <span class="muted">· ${ohne.length}</span></h3>
+    <p class="muted">Zählen nicht zum Fortschritt (umstellbar in den Einstellungen).</p>
+    ${alleSonder ? `<div class="setliste">${ohne.map(s => karte(s, serieStand(s.i))).join("")}</div>` : ""}
+    <button type="button" class="knopf" id="r-alle" style="justify-self:start">${alleSonder ? "Wieder zuklappen" : `Alle ${ohne.length} anzeigen`}</button>` : "";
+  if (ohne.length && !nurMeine) $("r-alle").onclick = () => { alleSonder = !alleSonder; serien(); };
 }
 let alleSonder = false;
+const hatAutos = s => IDX.jeSerie[s.i].some(m => hat(m.id));   // mindestens ein Auto der Serie (auch ein nicht gezähltes, z. B. Super TH)
+$("r-meine").checked = lies("nur-meine") === "1";
+$("r-meine").addEventListener("change", e => { merke("nur-meine", e.target.checked ? "1" : ""); serien(); });
 $("r-jahre").addEventListener("click", e => { const b = e.target.closest("[data-jahr]"); if (b) { serienJahr = Number(b.dataset.jahr); serienJahrVonHand = true; serien(); } });
 ["r-serien", "r-weitere"].forEach(id => $(id).addEventListener("click", e => {   // Serie antippen: in der Sammlung als Checkliste zeigen
   const b = e.target.closest("[data-serie]"); if (!b) return;
@@ -336,9 +355,14 @@ function fuelleJahre() {
 }
 function fuelleSerien() {
   const jahr = Number($("s-jahr").value), wahl = $("s-serie").value;
-  const alle = jahr ? IDX.serienJahr.get(jahr) || [] : [], opt = s => `<option value="${s.i}">${esc(s.name)}</option>`;
-  const sonder = alle.filter(s => s.sonder).sort((a, b) => a.name.localeCompare(b.name));
-  $("s-serie").innerHTML = `<option value="">Alle Serien</option>` + alle.filter(s => !s.sonder).map(opt).join("") +
+  const alle = jahr ? IDX.serienJahr.get(jahr) || [] : [];
+  const opt = s => { const st = hatAutos(s) ? serieStand(s.i) : null;
+    return `<option value="${s.i}">${st ? "✓ " : ""}${esc(s.name)}${st ? ` · ${st.hat}/${st.gesamt}` : ""}</option>`; };
+  const meine = alle.filter(hatAutos), andere = alle.filter(s => !hatAutos(s));
+  const sonder = andere.filter(s => s.sonder).sort((a, b) => a.name.localeCompare(b.name));
+  $("s-serie").innerHTML = `<option value="">Alle Serien</option>` +
+    (meine.length ? `<optgroup label="Meine Serien">${meine.map(opt).join("")}</optgroup>` : "") +
+    `<optgroup label="${meine.length ? "Weitere Serien" : "Serien"}">${andere.filter(s => !s.sonder).map(opt).join("")}</optgroup>` +
     (sonder.length ? `<optgroup label="Premium und Sonderserien">${sonder.map(opt).join("")}</optgroup>` : "");
   $("s-serie").value = [...$("s-serie").options].some(o => o.value === wahl) ? wahl : "";
   $("s-serie").disabled = !jahr;
