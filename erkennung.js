@@ -114,10 +114,10 @@ async function alsTeil(blob, max = 1024) {
 }
 
 const SCHEMA_LESEN = { type: "OBJECT", properties: {
-  ist_auto: { type: "BOOLEAN" },
+  ist_auto: { type: "BOOLEAN", description: "true, wenn ein Hot-Wheels-Auto oder seine Verpackung (auch nur die Rückseite) zu sehen ist" },
   verpackt: { type: "BOOLEAN", description: "true, wenn das Auto noch in der Blisterverpackung auf der Karte steckt" },
   name: { type: "STRING", description: "Modellname wie auf Karte oder Unterboden, z. B. '69 Dodge Charger" },
-  toy: { type: "STRING", description: "Toy-Nummer, meist 3 Buchstaben + 2 Ziffern wie HYW18; leer, wenn nicht lesbar" },
+  toy: { type: "STRING", description: "Toy-Nummer, meist 3 Buchstaben + 2 Ziffern wie HYW18. Auf der Kartenrückseite steht sie als Code wie JKX57-ND710 (G1) 21A – dann den ganzen Code. Leer, wenn nicht lesbar" },
   sammlernr: { type: "STRING", description: "Sammler-Nummer wie 123/250; leer, wenn nicht sichtbar" },
   serie: { type: "STRING", description: "Serienname auf der Karte, z. B. HW Dream Garage" },
   serie_nr: { type: "STRING", description: "Platz in der Serie wie 2/5" },
@@ -130,6 +130,8 @@ const SCHEMA_LESEN = { type: "OBJECT", properties: {
 const AUFTRAG_LESEN = `Auf dem Foto ist ein Hot-Wheels-Auto, entweder verpackt auf der Karte oder ausgepackt.
 Lies alles ab, was das Modell bestimmt: Modellname, Toy-Nummer (steht klein auf der Karte, z. B. HYW18), Sammler-Nummer (z. B. 123/250),
 Serienname und Platz in der Serie (z. B. HW Dream Garage 2/5). Bei einem ausgepackten Auto steht der Name meist auf dem Unterboden.
+Ist die Rückseite der Karte fotografiert: Dort steht ein Code wie „JKX57-ND710 (G1) 21A“ (oft oben beim Aufhängeloch) – das ist die Toy-Nummer.
+Auf der Rückseite sind oft mehrere Autos der Serie abgebildet; den Namen dann leer lassen, der Code genügt.
 Schreib nur, was du wirklich siehst; unlesbare Felder leer lassen. Erfinde keine Toy-Nummer.`;
 
 const SCHEMA_WAHL = { type: "OBJECT", properties: {
@@ -191,8 +193,8 @@ const SCHEMA_RUECKSEITE = { type: "OBJECT", properties: {
   code: { type: "STRING", description: "der ganze Code, z. B. JKX60-ND710 (G1) 21A; leer, wenn nicht lesbar" },
   toy: { type: "STRING", description: "nur der Teil vor dem Bindestrich, z. B. JKX60" },
 }, required: ["code", "toy"] };
-const AUFTRAG_RUECKSEITE = `Das ist die Rückseite einer Hot-Wheels-Verpackung. Unten steht klein ein Code wie „JKX60-ND710 (G1) 21A“
-(manchmal auch nur „JKX60“). Lies diesen Code genau ab. Die Toy-Nummer ist der Teil vor dem Bindestrich: meist 3 Buchstaben und 2 Ziffern.
+const AUFTRAG_RUECKSEITE = `Das ist die Rückseite einer Hot-Wheels-Verpackung. Irgendwo darauf steht ein Code wie „JKX60-ND710 (G1) 21A“
+(manchmal auch nur „JKX60“), oft oben neben dem Aufhängeloch, manchmal unten. Lies diesen Code genau ab. Die Toy-Nummer ist der Teil vor dem Bindestrich: meist 3 Buchstaben und 2 Ziffern.
 Achte auf Verwechslungen wie 0/O, 1/I, 5/S, 8/B. Nichts erfinden – unlesbar heisst leer.`;
 
 // Kandidaten zu einer gelesenen Toy-Nr.: genau, sonst mit einem abweichenden Zeichen (Lesefehler)

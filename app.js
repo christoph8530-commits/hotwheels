@@ -10,10 +10,26 @@ const heute = () => new Date().toISOString().slice(0, 10);
 const datumText = d => d ? new Date(d + "T12:00:00").toLocaleDateString("de-CH") : "";
 const DIESES_JAHR = new Date().getFullYear();
 const TEST = new URLSearchParams(location.search).has("test");
-const VERSION = "1.3 (12.10.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
+const VERSION = "1.4 (12.10.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
 
-const lies = k => { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } };
-const merke = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch (e) {} };
+// Pokémon- und Hot-Wheels-App laufen beide unter christoph8530-commits.github.io und teilen sich damit den Gerätespeicher.
+// Darum hat hier jeder Name die Vorsilbe „hw-“ (auch die Zwischenspeicher), sonst überschreiben sich die Apps gegenseitig.
+const P = "hw-";
+const lies = k => { try { return localStorage.getItem(P + k) || ""; } catch (e) { return ""; } };
+const merke = (k, v) => { try { v ? localStorage.setItem(P + k, v) : localStorage.removeItem(P + k); } catch (e) {} };
+(function umziehen() {   // einmalig: was Fassung 1.0–1.3 ohne Vorsilbe gespeichert hat, übernehmen und der Pokémon-App zurückgeben
+  try {
+    if (localStorage.getItem(P + "umgezogen")) return;
+    const repo = localStorage.getItem("repo") || "";
+    if (/hotwheels/i.test(repo)) { localStorage.setItem(P + "repo", repo); localStorage.removeItem("repo"); }   // Pokémon nimmt wieder ihr Standard-Repo
+    for (const k of ["token", "gemini"]) { const v = localStorage.getItem(k); if (v && !localStorage.getItem(P + k)) localStorage.setItem(P + k, v); }
+    const sammeln = localStorage.getItem("sammeln");
+    if (sammeln) { localStorage.setItem(P + "sammeln", sammeln); localStorage.removeItem("sammeln"); }
+    try { if (JSON.parse(localStorage.getItem("stand") || "null")?.SAM) localStorage.removeItem("stand"); } catch (e) {}
+    localStorage.removeItem("verzeichnis-geprueft");
+    localStorage.setItem(P + "umgezogen", "1");
+  } catch (e) {}
+})();
 const EINST = { repo: lies("repo") || "christoph8530-commits/hotwheelsprivate", token: lies("token"), gemini: lies("gemini") };
 // Was gesammelt wird (nur auf diesem Gerät): Jahre, Farbvarianten einzeln, Super Treasure Hunts
 const OPT = (() => { const std = { jahre: [], varianten: true, sth: false, sonder: false };
@@ -402,8 +418,8 @@ function oeffneNeu(vor = {}) {
   $("form-neu").reset(); sucheVonHand = false; neuFoto = null; wahl = null; erkennung = null; kandidaten = []; frei = false; speicherId = null;
   $("n-vorschau").innerHTML = `<div class="leerbild"></div>`;
   $("n-meldung").className = "meldung";
-  $("n-meldung").textContent = kannErkennen() ? "Verpackt: am sichersten die Rückseite (Code unten, z. B. JKX60). Sonst die Vorderseite oder das Auto fotografieren, oder unten suchen."
-    : "Such das Auto unten nach Name oder Toy-Nr. (Code unten auf der Kartenrückseite, z. B. JKX60). Für die Foto-Erkennung fehlt der Gemini-Schlüssel.";
+  $("n-meldung").textContent = kannErkennen() ? "Verpackt: am sichersten die Rückseite (Code wie JKX60-ND710, oft oben beim Aufhängeloch). Sonst die Vorderseite oder das Auto fotografieren, oder unten suchen."
+    : "Such das Auto unten nach Name oder Toy-Nr. (Code auf der Kartenrückseite, z. B. JKX60). Für die Foto-Erkennung fehlt der Gemini-Schlüssel.";
   $("n-rueck-knopf").hidden = !kannErkennen();
   $("n-speichern-meldung").textContent = ""; $("n-erkennen").hidden = true; $("n-frei").hidden = true;
   $("n-kandidaten").hidden = true; $("n-besitz").hidden = true;
@@ -645,8 +661,8 @@ $("form-einstellungen").addEventListener("submit", async ev => {
 });
 
 // ---------- Laden und Verbinden ----------
-function merkeStand() { try { localStorage.setItem("stand", JSON.stringify({ SAM })); } catch (e) {} }
-function gemerkterStand() { try { return JSON.parse(localStorage.getItem("stand") || "null"); } catch (e) { return null; } }
+function merkeStand() { merke("stand", JSON.stringify({ SAM })); }
+function gemerkterStand() { try { return JSON.parse(lies("stand") || "null"); } catch (e) { return null; } }
 
 async function verbinde() {
   if (!TEST && !EINST.token) {
@@ -678,7 +694,7 @@ async function aktualisieren() {
   const dateien = ["./", "index.html", "app.js", "erkennung.js", "speicher.js", "sw.js", "daten/modell-index.json"];
   try { await Promise.all(dateien.map(u => fetch(u, { cache: "reload" }))); } catch {}
   try { const reg = await navigator.serviceWorker?.getRegistration(); await reg?.update(); } catch {}
-  try { for (const n of await caches.keys()) if (n.startsWith("app-")) await caches.delete(n); } catch {}
+  try { for (const n of await caches.keys()) if (n.startsWith("hw-app-")) await caches.delete(n); } catch {}
   location.reload();
 }
 function neueVersionHinweis() {
@@ -700,7 +716,7 @@ async function neuesVerzeichnis() {
     merke("verzeichnis-geprueft", heute());
     if (d?.stand && (!IDX || d.stand > IDX.stand)) {
       IDX = new Index(d); fuelleJahre(); fuelleSerien(); alles();
-      try { await (await caches.open("verzeichnis")).put("neuestes", new Response(JSON.stringify(d))); } catch (e) {}
+      try { await (await caches.open("hw-verzeichnis")).put("neuestes", new Response(JSON.stringify(d))); } catch (e) {}
     }
   } catch (e) {}
 }
@@ -723,7 +739,7 @@ async function start() {
   try {
     const d = await fetch("daten/modell-index.json").then(r => r.json());
     let gemerkt = null;
-    try { gemerkt = await (await (await caches.open("verzeichnis")).match("neuestes"))?.json(); } catch (e) {}
+    try { gemerkt = await (await (await caches.open("hw-verzeichnis")).match("neuestes"))?.json(); } catch (e) {}
     IDX = new Index(gemerkt && gemerkt.stand > d.stand ? gemerkt : d);
   } catch (e) { status("Das Modellverzeichnis konnte nicht geladen werden.", "warn"); return; }
   fuelleJahre(); fuelleSerien();
