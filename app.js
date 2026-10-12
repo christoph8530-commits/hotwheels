@@ -14,7 +14,7 @@ const VERSION = "1.0 (12.10.2026)";      // in den Einstellungen sichtbar – hi
 
 const lies = k => { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } };
 const merke = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch (e) {} };
-const EINST = { repo: lies("repo") || "christoph8530-commits/hotwheels-sammlung", token: lies("token"), gemini: lies("gemini") };
+const EINST = { repo: lies("repo") || "christoph8530-commits/hotwheelsprivate", token: lies("token"), gemini: lies("gemini") };
 // Was gesammelt wird (nur auf diesem Gerät): Jahre, Farbvarianten einzeln, Super Treasure Hunts
 const OPT = (() => { try { return { jahre: [], varianten: true, sth: false, ...JSON.parse(lies("sammeln") || "{}") }; } catch (e) { return { jahre: [], varianten: true, sth: false }; } })();
 
