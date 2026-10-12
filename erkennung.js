@@ -22,13 +22,17 @@ export class Index {
   constructor(d) {
     this.stand = d.stand; this.quelle = d.quelle; this.serien = d.serien; this.modelle = d.modelle;
     this.jahre = Object.keys(d.jahre).map(Number).sort((a, b) => a - b);
-    this.nachId = new Map(); this.nachToy = new Map(); this.nachName = new Map();
+    this.nachId = new Map(); this.nachToy = new Map(); this.nachModell = new Map();
     this.jeSerie = d.serien.map(() => []);
+    const serienText = d.serien.map(s => norm(s.name));
     for (const m of d.modelle) {
       m.n = norm(m.name);
+      // Suchtext einmal vorbereiten: Name, Serie, Toy-Nr., Farbe, Variante, Händler
+      m.t = `${m.n} ${serienText[m.s]} ${(m.toy || "").toLowerCase()} ${norm(m.farbe)} ${norm(m.vtext)} ${norm(m.exkl)}`;
       this.nachId.set(m.id, m);
       if (m.toy) { if (!this.nachToy.has(m.toy)) this.nachToy.set(m.toy, []); this.nachToy.get(m.toy).push(m); }
-      if (!this.nachName.has(m.n)) this.nachName.set(m.n, []); this.nachName.get(m.n).push(m);
+      const k = m.k ?? m.n;   // alle Ausführungen desselben Modells (Modellseite im Wiki)
+      if (!this.nachModell.has(k)) this.nachModell.set(k, []); this.nachModell.get(k).push(m);
       this.jeSerie[m.s].push(m);
     }
     for (const l of this.jeSerie) l.sort((a, b) => (a.snr || 0) - (b.snr || 0) || a.nr.localeCompare(b.nr) || (a.var || 1) - (b.var || 1));
@@ -36,9 +40,11 @@ export class Index {
     this.serienJahr = new Map();
     this.serien.forEach((s, i) => { s.i = i; s.ab = Math.min(...this.jeSerie[i].map(m => parseInt(m.nr, 10) || 999));
       if (!this.serienJahr.has(s.jahr)) this.serienJahr.set(s.jahr, []); this.serienJahr.get(s.jahr).push(s); });
+    this.jahre = [...this.serienJahr.keys()].sort((a, b) => a - b);   // auch Jahre nur mit Sonderserien
     for (const l of this.serienJahr.values()) l.sort((a, b) => a.ab - b.ab || a.name.localeCompare(b.name));
   }
   modell(id) { return this.nachId.get(id); }
+  ausfuehrungen(m) { return this.nachModell.get(m.k ?? m.n) || [m]; }
   serie(m) { return this.serien[m.s]; }
   // Freie Suche: Name, Serie, Toy-Nr. („HYW18“), Jahr („2025“), Sammler-Nr. („123“ oder „123/250“)
   suche(text, max = 200) {
@@ -57,16 +63,13 @@ export class Index {
     for (const m of this.modelle) {
       if (jahr && m.jahr !== jahr) continue;
       if (nr && m.nr !== nr3 && !imNamen.test(m.n)) continue;
-      if (rest.length) {
-        const text = m.n + " " + norm(this.serien[m.s].name) + " " + (m.toy || "").toLowerCase() + " " + norm(m.vtext || "") + " " + norm(m.exkl || "");
-        if (!rest.every(w => text.includes(w))) continue;
-      }
+      if (rest.length && !rest.every(w => m.t.includes(w))) continue;
       out.push(m);
     }
-    // Treffer im Namen vor Treffern nur in der Serie; neuere Jahre zuerst
+    // Treffer im Namen vor Treffern nur in Serie oder Farbe; Mainline vor Sonderserien; neuere Jahre zuerst
     const imName = m => rest.every(w => m.n.includes(w)) ? 0 : 1;
     const nrZuerst = m => nr && m.nr === nr3 && jahr ? 0 : 1;   // „2025 4“ meint die Sammler-Nr. 4
-    out.sort((a, b) => nrZuerst(a) - nrZuerst(b) || imName(a) - imName(b) || b.jahr - a.jahr || a.nr.localeCompare(b.nr) || (a.var || 1) - (b.var || 1));
+    out.sort((a, b) => nrZuerst(a) - nrZuerst(b) || imName(a) - imName(b) || b.jahr - a.jahr || (a.x || 0) - (b.x || 0) || a.nr.localeCompare(b.nr) || (a.var || 1) - (b.var || 1));
     return out.slice(0, max);
   }
 }
@@ -118,7 +121,7 @@ const SCHEMA_LESEN = { type: "OBJECT", properties: {
   serie: { type: "STRING", description: "Serienname auf der Karte, z. B. HW Dream Garage" },
   serie_nr: { type: "STRING", description: "Platz in der Serie wie 2/5" },
   jahr: { type: "INTEGER", nullable: true, description: "Erscheinungsjahr nur, wenn auf der Karte klar erkennbar; nicht das Jahr vom Unterboden" },
-  farbe: { type: "STRING", description: "Hauptfarbe auf Deutsch" },
+  farbe: { type: "STRING", description: "Hauptfarbe auf Englisch, wie in Katalogen üblich, z. B. white, metalflake blue, spectraflame red" },
   treasure_hunt: { type: "BOOLEAN", description: "kleines Flammen-Logo im Kreis auf der Karte oder am Auto" },
   super_treasure_hunt: { type: "BOOLEAN", description: "TH-Logo, Spectraflame-Lack und Real-Riders-Gummireifen" },
 }, required: ["ist_auto", "verpackt", "name"] };
@@ -159,8 +162,11 @@ export function zuordnen(r, index, hinweis = "") {
   const name = r?.name || (hinweis && !toy ? hinweis : "");
   const nr = (String(r?.sammlernr || "").match(/^\s*(\d{1,3})\s*\//) || [])[1]?.padStart(3, "0");
   const snr = parseInt((String(r?.serie_nr || "").match(/^\s*(\d+)\s*\//) || [])[1], 10);
+  const farbWoerter = norm(r?.farbe).split(" ").filter(w => w.length > 2);
+  const nameCache = new Map();   // Ähnlichkeit je Modellname nur einmal rechnen
   for (const m of index.modelle) {
-    const nameA = name ? aehnlich(name, m.name) : 0;
+    if (!nameCache.has(m.n)) nameCache.set(m.n, name ? aehnlich(name, m.name) : 0);
+    const nameA = nameCache.get(m.n);
     if (nameA < 0.5 && !punkte.has(m.id)) continue;
     plus(m, Math.round(nameA * 40));
     if (nr && m.nr === nr) plus(m, 20);
@@ -171,8 +177,10 @@ export function zuordnen(r, index, hinweis = "") {
     if (r?.super_treasure_hunt && marken.includes("STH")) plus(m, 15);
     else if (r?.treasure_hunt && marken.includes("TH")) plus(m, 10);
     if (!r?.super_treasure_hunt && marken.includes("STH")) plus(m, -10);
+    if (farbWoerter.length && m.farbe && farbWoerter.some(w => norm(m.farbe).includes(w))) plus(m, 8);
   }
-  return [...punkte].sort((a, b) => b[1] - a[1]).map(([id, p]) => ({ m: index.modell(id), p }));
+  // bei Gleichstand neuere zuerst – im Laden findet man meist aktuelle Autos
+  return [...punkte].map(([id, p]) => ({ m: index.modell(id), p })).sort((a, b) => b.p - a.p || b.m.jahr - a.m.jahr);
 }
 
 // Ganze Erkennung. Ergebnis: {antwort, tipp: [ids], status: "ok"|"pruefen", anfragen}

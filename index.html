@@ -183,7 +183,7 @@ dialog::backdrop { background: rgb(8 10 16 / 0.7); }
 <body>
 <div class="wrap">
   <header>
-    <div class="kopfzeile"><div class="eyebrow">Sammlung · Mainline ab 2000</div><button type="button" class="zu" id="einstellungen-knopf" aria-label="Einstellungen">⚙ Einstellungen</button></div>
+    <div class="kopfzeile"><div class="eyebrow">Sammlung · Mainline, Premium und Sonderserien</div><button type="button" class="zu" id="einstellungen-knopf" aria-label="Einstellungen">⚙ Einstellungen</button></div>
     <h1>Hot-Wheels-Sammlung</h1>
     <div class="status" id="status"><span class="punkt"></span><span id="status-text">Lädt die Sammlung …</span></div>
   </header>
@@ -216,6 +216,7 @@ dialog::backdrop { background: rgb(8 10 16 / 0.7); }
     <div class="jahre" id="r-jahre"></div>
     <p class="muted" id="r-info"></p>
     <div class="setliste" id="r-serien"></div>
+    <div id="r-weitere" style="display:grid;gap:10px" hidden></div>
   </div>
 
   <div class="panel" id="panel-fehlliste" role="tabpanel" aria-labelledby="tab-fehlliste" hidden>
@@ -296,6 +297,7 @@ dialog::backdrop { background: rgb(8 10 16 / 0.7); }
         <div class="jahrwahl" id="e-jahre"></div>
         <label class="check"><input id="e-varianten" type="checkbox"> Farbvarianten einzeln zählen <span class="hinweis">(sonst reicht eine Farbe pro Modell)</span></label>
         <label class="check"><input id="e-sth" type="checkbox"> Super Treasure Hunts mitzählen</label>
+        <label class="check"><input id="e-sonder" type="checkbox"> Premium und Sonderserien mitzählen <span class="hinweis">(Car Culture, Exklusiv-Serien, Multipacks …)</span></label>
       </fieldset>
       <p class="muted">Die Schlüssel bleiben nur auf diesem Gerät gespeichert. Sie werden nur an GitHub bzw. Google geschickt.</p>
       <label>GitHub-Repo<input id="e-repo" type="text" autocomplete="off" spellcheck="false" placeholder="name/hotwheelsprivate">

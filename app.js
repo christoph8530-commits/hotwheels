@@ -10,13 +10,14 @@ const heute = () => new Date().toISOString().slice(0, 10);
 const datumText = d => d ? new Date(d + "T12:00:00").toLocaleDateString("de-CH") : "";
 const DIESES_JAHR = new Date().getFullYear();
 const TEST = new URLSearchParams(location.search).has("test");
-const VERSION = "1.0 (12.10.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
+const VERSION = "1.1 (12.10.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
 
 const lies = k => { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } };
 const merke = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch (e) {} };
 const EINST = { repo: lies("repo") || "christoph8530-commits/hotwheelsprivate", token: lies("token"), gemini: lies("gemini") };
 // Was gesammelt wird (nur auf diesem Gerät): Jahre, Farbvarianten einzeln, Super Treasure Hunts
-const OPT = (() => { try { return { jahre: [], varianten: true, sth: false, ...JSON.parse(lies("sammeln") || "{}") }; } catch (e) { return { jahre: [], varianten: true, sth: false }; } })();
+const OPT = (() => { const std = { jahre: [], varianten: true, sth: false, sonder: false };
+  try { return { ...std, ...JSON.parse(lies("sammeln") || "{}") }; } catch (e) { return std; } })();
 
 let IDX = null;               // Modellverzeichnis
 let SAM = [];                 // Einträge der Sammlung (app-daten/sammlung.json)
@@ -57,6 +58,8 @@ const hat = id => inventar().map.get(id)?.anzahl || 0;
 // Zähleinheit für Fortschritt und Fehlliste: jede Farbvariante einzeln oder ein Platz pro Serie
 const zaehlt = m => OPT.sth || !(m.marken || []).includes("STH");
 const einheit = m => OPT.varianten ? m.id : `${m.s}|${m.snr}`;
+// Serien, die für Fortschritt und Fehlliste zählen: Mainline, auf Wunsch auch Premium und Sonderserien
+const gezaehlteSerien = jahr => (IDX.serienJahr.get(jahr) || []).filter(s => !s.sonder || OPT.sonder);
 function serieStand(si) {
   const alle = IDX.jeSerie[si].filter(zaehlt), einheiten = new Map();
   for (const m of alle) { const k = einheit(m); if (!einheiten.has(k)) einheiten.set(k, []); einheiten.get(k).push(m); }
@@ -99,12 +102,13 @@ function chips(m, e) {
   if (mk.includes("NEU")) c.push(`<span class="chip gelb">Neu</span>`);
   if (m && VAR_TEXT(m)) c.push(`<span class="chip">${esc(VAR_TEXT(m))}</span>`);
   if (m?.exkl) c.push(`<span class="chip">${esc(m.exkl)}</span>`);
+  if (m?.x) c.push(`<span class="chip">Sonderserie</span>`);
   if (e?.lose && !e.verpackt) c.push(`<span class="chip">lose</span>`);
   return c.length ? `<span class="chips">${c.join("")}</span>` : "";
 }
 function metaText(m) {
   const s = serieVon(m);
-  return `${m.jahr} · <span class="mono">#${esc(m.nr || "–")}</span> · ${esc(s.name)} ${m.snr ? `<span class="mono">${m.snr}/${s.gesamt}</span>` : ""}`;
+  return `${m.jahr}${m.nr ? ` · <span class="mono">#${esc(m.nr)}</span>` : ""} · ${esc(s.name)} ${m.snr ? `<span class="mono">${m.snr}/${s.gesamt}</span>` : ""}${m.farbe ? ` · ${esc(m.farbe)}` : ""}`;
 }
 function kachel(m, e) {   // Modell aus dem Verzeichnis, mit oder ohne Besitz
   const anzahl = e?.anzahl || 0;
@@ -135,9 +139,9 @@ function bilanz() {
   const stueck = inv.reduce((a, e) => a + e.anzahl, 0);
   const jahr = IDX.serienJahr.has(DIESES_JAHR) ? DIESES_JAHR : IDX.jahre.at(-1);
   let jh = 0, jg = 0;
-  for (const s of IDX.serienJahr.get(jahr) || []) { const st = serieStand(s.i); jh += st.hat; jg += st.gesamt; }
+  for (const s of gezaehlteSerien(jahr)) { const st = serieStand(s.i); jh += st.hat; jg += st.gesamt; }
   let komplett = 0, alleSerien = 0;
-  for (const j of meineJahre()) for (const s of IDX.serienJahr.get(j) || []) { const st = serieStand(s.i); alleSerien++; if (st.gesamt && st.hat === st.gesamt) komplett++; }
+  for (const j of meineJahre()) for (const s of gezaehlteSerien(j)) { const st = serieStand(s.i); alleSerien++; if (st.gesamt && st.hat === st.gesamt) komplett++; }
   const th = inv.filter(e => e.m?.marken?.includes("TH")).length, sth = inv.filter(e => e.m?.marken?.includes("STH")).length;
   $("bilanz").innerHTML = `
     <div><span class="label">Autos</span><span class="wert">${stueck}</span><small>${inv.length} verschiedene</small></div>
@@ -166,7 +170,7 @@ function sammlung() {
     const eigene = liste.length;
     let fehlt = [];
     if (mitFehl) {
-      const serienListe = serie !== "" ? [Number(serie)] : (IDX.serienJahr.get(jahr) || []).map(s => s.i);
+      const serienListe = serie !== "" ? [Number(serie)] : gezaehlteSerien(jahr).map(s => s.i);
       fehlt = serienListe.flatMap(si => serieStand(si).fehlt);
     }
     const sortierer = {
@@ -193,25 +197,39 @@ function serien() {
   $("r-jahre").innerHTML = jahre.map(j => `<button type="button" class="chip-knopf" data-jahr="${j}" aria-pressed="${j === serienJahr}">${j}</button>`).join("") +
     `<select id="r-anderes" aria-label="Anderes Jahr"><option value="">Anderes Jahr …</option>${weitere.map(j => `<option value="${j}"${j === serienJahr ? " selected" : ""}>${j}</option>`).join("")}</select>`;
   $("r-anderes").onchange = e => { if (e.target.value) { serienJahr = Number(e.target.value); serienJahrVonHand = true; serien(); } };
-  const liste = IDX.serienJahr.get(serienJahr) || [];
+  const liste = gezaehlteSerien(serienJahr);
   let h = 0, g = 0, k = 0;
-  $("r-serien").innerHTML = liste.map(s => {
-    const st = serieStand(s.i); h += st.hat; g += st.gesamt; if (st.gesamt && st.hat === st.gesamt) k++;
+  const karte = (s, st) => {
     const voll = st.gesamt && st.hat === st.gesamt;
-    return `<button type="button" class="setkarte${voll ? " komplett" : ""}" data-serie="${s.i}"><span><strong>${esc(s.name)}</strong> <span class="muted">· ab #${String(s.ab).padStart(3, "0")}</span></span>
+    return `<button type="button" class="setkarte${voll ? " komplett" : ""}" data-serie="${s.i}"><span><strong>${esc(s.name)}</strong>${s.ab < 999 ? ` <span class="muted">· ab #${String(s.ab).padStart(3, "0")}</span>` : ""}</span>
       <span class="num">${st.hat} / ${st.gesamt}</span>
       <span class="voll"><span class="balken"><span style="width:${st.gesamt ? st.hat / st.gesamt * 100 : 0}%"></span></span><span>${voll ? "komplett ✓" : `${st.gesamt - st.hat} fehlen`}</span></span></button>`;
-  }).join("") || `<div class="leer">Für ${serienJahr} gibt es keine Serien im Verzeichnis.</div>`;
+  };
+  $("r-serien").innerHTML = liste.map(s => {
+    const st = serieStand(s.i); h += st.hat; g += st.gesamt; if (st.gesamt && st.hat === st.gesamt) k++;
+    return karte(s, st);
+  }).join("") || `<div class="leer">Für ${serienJahr} gibt es keine Mainline-Serien im Verzeichnis.</div>`;
   $("r-info").textContent = `${serienJahr}: ${h} von ${g} ${OPT.varianten ? "Modellen inkl. Farbvarianten" : "Modellen"}, ${k} von ${liste.length} Serien komplett. Tippe auf eine Serie für die Checkliste.`;
+  // Premium und Sonderserien, die nicht mitzählen: die mit eigenen Autos immer, alle anderen auf Wunsch
+  const sonder = OPT.sonder ? [] : (IDX.serienJahr.get(serienJahr) || []).filter(s => s.sonder).sort((a, b) => a.name.localeCompare(b.name));
+  const eigene = sonder.filter(s => IDX.jeSerie[s.i].some(m => hat(m.id)));
+  const zeigen = alleSonder ? sonder : eigene;
+  $("r-weitere").hidden = !sonder.length;
+  $("r-weitere").innerHTML = sonder.length ? `<h2>Premium und Sonderserien ${serienJahr}</h2>
+    <p class="muted">Zählen nicht zum Fortschritt (umstellbar in den Einstellungen).${eigene.length ? "" : " Aus diesem Jahr hast du noch keine."}</p>
+    <div class="setliste">${zeigen.map(s => karte(s, serieStand(s.i))).join("")}</div>
+    <button type="button" class="knopf" id="r-alle" style="justify-self:start">${alleSonder ? "Nur die mit eigenen Autos zeigen" : `Alle ${sonder.length} anzeigen`}</button>` : "";
+  if (sonder.length) $("r-alle").onclick = () => { alleSonder = !alleSonder; serien(); };
 }
+let alleSonder = false;
 $("r-jahre").addEventListener("click", e => { const b = e.target.closest("[data-jahr]"); if (b) { serienJahr = Number(b.dataset.jahr); serienJahrVonHand = true; serien(); } });
-$("r-serien").addEventListener("click", e => {   // Serie antippen: in der Sammlung als Checkliste zeigen
+["r-serien", "r-weitere"].forEach(id => $(id).addEventListener("click", e => {   // Serie antippen: in der Sammlung als Checkliste zeigen
   const b = e.target.closest("[data-serie]"); if (!b) return;
   const s = IDX.serien[Number(b.dataset.serie)];
   $("suche").value = ""; $("s-jahr").value = String(s.jahr); fuelleSerien(); $("s-serie").value = String(s.i);
   $("s-doppelt").checked = false; $("s-fehlend").checked = true; $("s-sort").value = "nr";
   alles(); zeigeTab("sammlung");
-});
+}));
 
 function fehlliste() {
   const jahre = meineJahre(), wahl = $("f-jahr").value;
@@ -222,7 +240,7 @@ function fehlliste() {
   const passt = (m, s) => { const t = `${m.n} ${norm(s.name)} ${m.jahr} ${m.nr} ${Number(m.nr)} ${(m.toy || "").toLowerCase()}`; return woerter.every(w => t.includes(w)); };
   let gesamt = 0;
   const html = (wahl ? [Number(wahl)] : jahre).map(j => {
-    const teile = (IDX.serienJahr.get(j) || []).map(s => {
+    const teile = gezaehlteSerien(j).map(s => {
       const fehlt = serieStand(s.i).fehlt.filter(m => passt(m, s));
       if (!fehlt.length) return "";
       gesamt += fehlt.length;
@@ -277,7 +295,10 @@ function fuelleJahre() {
 }
 function fuelleSerien() {
   const jahr = Number($("s-jahr").value), wahl = $("s-serie").value;
-  $("s-serie").innerHTML = `<option value="">Alle Serien</option>` + (jahr ? (IDX.serienJahr.get(jahr) || []).map(s => `<option value="${s.i}">${esc(s.name)}</option>`).join("") : "");
+  const alle = jahr ? IDX.serienJahr.get(jahr) || [] : [], opt = s => `<option value="${s.i}">${esc(s.name)}</option>`;
+  const sonder = alle.filter(s => s.sonder).sort((a, b) => a.name.localeCompare(b.name));
+  $("s-serie").innerHTML = `<option value="">Alle Serien</option>` + alle.filter(s => !s.sonder).map(opt).join("") +
+    (sonder.length ? `<optgroup label="Premium und Sonderserien">${sonder.map(opt).join("")}</optgroup>` : "");
   $("s-serie").value = [...$("s-serie").options].some(o => o.value === wahl) ? wahl : "";
   $("s-serie").disabled = !jahr;
 }
@@ -305,7 +326,7 @@ function zeigeModell(id) {
   $("k-aktionen").innerHTML = schreibbar ? `<button type="button" class="knopf voll" id="k-mehr">${e ? "Weiteres Exemplar" : "Hinzufügen"}</button>` : "";
   if (schreibbar) $("k-mehr").onclick = () => { $("dlg-karte").close(); oeffneNeu({ modell: m.id, zustand: e?.eintraege.at(-1)?.zustand }); };
   // andere Ausführungen desselben Modells (andere Jahre und Farben)
-  const andere = (IDX.nachName.get(m.n) || []).filter(x => x.id !== m.id).sort((a, b) => b.jahr - a.jahr || (a.var || 1) - (b.var || 1));
+  const andere = IDX.ausfuehrungen(m).filter(x => x.id !== m.id).sort((a, b) => b.jahr - a.jahr || (a.var || 1) - (b.var || 1));
   $("k-versionen").innerHTML = andere.length ? `<strong>Andere Ausführungen (${andere.length})</strong><div class="versionen">${andere.slice(0, 30).map(x =>
     `<button type="button" class="kandidat" data-modell="${esc(x.id)}">${bildHtml(wikiBild(x, 200), x.name)}${hat(x.id) ? `<span class="hat-punkt">✓ ${hat(x.id)}</span>` : ""}
       <span><strong>${x.jahr}</strong> · #${esc(x.nr)}<br><span class="muted">${esc(serieVon(x).name)}${VAR_TEXT(x) ? " · " + esc(VAR_TEXT(x)) : ""}</span></span></button>`).join("")}</div>` : "";
@@ -337,7 +358,7 @@ function zeigeKandidaten(titel) {
   $("n-kandidaten").hidden = false;
   $("n-kandidaten").innerHTML = `<strong>${esc(titel)}</strong><div class="reihe">${kandidaten.slice(0, 30).map(id => { const m = IDX.modell(id);
     return `<button type="button" class="kandidat" data-kandidat="${esc(id)}" aria-pressed="${id === wahl}">${bildHtml(wikiBild(m, 200), m.name)}${hat(id) ? `<span class="hat-punkt">✓ ${hat(id)}</span>` : ""}
-      <span><strong>${esc(m.name)}</strong><br><span class="muted">${m.jahr} · #${esc(m.nr)} · ${esc(serieVon(m).name)}${VAR_TEXT(m) ? " · " + esc(VAR_TEXT(m)) : ""}${m.marken?.includes("STH") ? " · Super TH" : m.marken?.includes("TH") ? " · TH" : ""}</span></span></button>`; }).join("")}</div>` +
+      <span><strong>${esc(m.name)}</strong><br><span class="muted">${m.jahr}${m.nr ? " · #" + esc(m.nr) : ""} · ${esc(serieVon(m).name)}${m.farbe ? " · " + esc(m.farbe) : ""}${VAR_TEXT(m) ? " · " + esc(VAR_TEXT(m)) : ""}${m.exkl ? " · " + esc(m.exkl) : ""}${m.marken?.includes("STH") ? " · Super TH" : m.marken?.includes("TH") ? " · TH" : ""}</span></span></button>`; }).join("")}</div>` +
     (kandidaten.length > 30 ? `<span class="muted">… und ${kandidaten.length - 30} weitere. Grenze die Suche ein, z. B. mit dem Jahr.</span>` : "");
 }
 function markiereKandidat() { document.querySelectorAll("[data-kandidat]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.kandidat === wahl))); }
@@ -350,9 +371,9 @@ function zeigeBesitz() {
   const feld = $("n-besitz"), m = wahl && IDX.modell(wahl);
   if (!m) { feld.hidden = true; return; }
   const e = inventar().map.get(m.id), s = serieVon(m);
-  const auto = `${esc(m.name)} · ${m.jahr} · #${esc(m.nr)} · ${esc(s.name)} ${m.snr ? m.snr + "/" + s.gesamt : ""}${VAR_TEXT(m) ? " · " + esc(VAR_TEXT(m)) : ""}`;
+  const auto = `${esc(m.name)} · ${m.jahr}${m.nr ? " · #" + esc(m.nr) : ""} · ${esc(s.name)} ${m.snr ? m.snr + "/" + s.gesamt : ""}${m.farbe ? " · " + esc(m.farbe) : ""}${VAR_TEXT(m) ? " · " + esc(VAR_TEXT(m)) : ""}${m.exkl ? " · " + esc(m.exkl) : ""}${m.toy ? " · " + esc(m.toy) : ""}`;
   // andere Farben desselben Platzes oder dasselbe Modell aus anderen Jahren
-  const verwandt = (IDX.nachName.get(m.n) || []).filter(x => x.id !== m.id && hat(x.id));
+  const verwandt = IDX.ausfuehrungen(m).filter(x => x.id !== m.id && hat(x.id));
   const verwandtText = verwandt.length ? `<div class="muted" style="font-size:0.88rem">Andere Ausführungen hast du: ${verwandt.slice(0, 4).map(x => `${x.jahr}${VAR_TEXT(x) ? " (" + esc(VAR_TEXT(x)) + ")" : ""}`).join(", ")}${verwandt.length > 4 ? " …" : ""}</div>` : "";
   feld.hidden = false;
   feld.className = "besitz " + (e ? "hat" : "fehlt");
@@ -452,8 +473,12 @@ async function erkenne() {
     if (r && !r.ist_auto) { meldung.textContent = "Auf dem Foto ist kein Hot-Wheels-Auto zu erkennen. Bitte nochmal fotografieren oder suchen."; return; }
     if (r?.verpackt === false) $("n-zustand").value = "lose";
     if (!kandidaten.length) {
-      meldung.textContent = `${r?.name ? "„" + r.name + "“" : "Das Auto"} wurde im Verzeichnis nicht gefunden. Such es unten oder trag es frei ein.`;
+      meldung.textContent = `${r?.name ? "„" + r.name + "“" : "Das Auto"} wurde im Verzeichnis nicht gefunden. Such es unten anders, oder speichere es als eigenen Eintrag.`;
       if (r?.name) $("n-suche").value = r.name;
+      if (modus === "neu") {   // gleich zum freien Eintrag, mit allem, was Gemini gelesen hat
+        frei = true; wahl = null; $("n-frei").hidden = false; zeigeBesitz();
+        $("n-freitext").value = [r?.name, r?.serie && r.serie + (r.serie_nr ? " " + r.serie_nr : ""), r?.toy, r?.farbe].filter(Boolean).join(", ");
+      }
       return;
     }
     waehle(kandidaten[0]);
@@ -534,7 +559,7 @@ $("f-ja").addEventListener("click", async () => {
 function oeffneEinstellungen() {
   $("e-repo").value = EINST.repo; $("e-token").value = EINST.token; $("e-gemini").value = EINST.gemini;
   $("e-jahre").innerHTML = (IDX ? [...IDX.jahre].reverse() : []).map(j => `<label><input type="checkbox" value="${j}"${OPT.jahre.includes(j) ? " checked" : ""}>${j}</label>`).join("");
-  $("e-varianten").checked = OPT.varianten; $("e-sth").checked = OPT.sth;
+  $("e-varianten").checked = OPT.varianten; $("e-sth").checked = OPT.sth; $("e-sonder").checked = OPT.sonder;
   $("e-ergebnis").innerHTML = `<div class="muted">App-Version ${VERSION}${IDX ? ` · Verzeichnis vom ${datumText(IDX.stand)}, ${IDX.modelle.length} Modelle` : ""}</div>
     <button type="button" class="knopf" id="e-aktualisieren" style="justify-self:start">App aktualisieren</button>`;
   $("e-aktualisieren").onclick = aktualisieren;
@@ -549,7 +574,7 @@ $("e-vergessen").addEventListener("click", () => {
 $("form-einstellungen").addEventListener("submit", async ev => {
   ev.preventDefault();
   OPT.jahre = [...$("e-jahre").querySelectorAll("input:checked")].map(i => Number(i.value));
-  OPT.varianten = $("e-varianten").checked; OPT.sth = $("e-sth").checked;
+  OPT.varianten = $("e-varianten").checked; OPT.sth = $("e-sth").checked; OPT.sonder = $("e-sonder").checked;
   merke("sammeln", JSON.stringify(OPT)); alles();
   const neuerSchluessel = EINST.repo !== $("e-repo").value.trim() || EINST.token !== $("e-token").value.trim();
   EINST.repo = $("e-repo").value.trim(); EINST.token = $("e-token").value.trim(); EINST.gemini = $("e-gemini").value.trim();
