@@ -156,8 +156,9 @@ export function zuordnen(r, index, hinweis = "") {
   const plus = (m, p) => punkte.set(m.id, (punkte.get(m.id) || 0) + p);
   const toy = normToy(hinweis && istToy(norm(hinweis).replace(/ /g, "")) ? hinweis : r?.toy);
   if (toy.length >= 4) {
-    for (const m of index.nachToy.get(toy) || []) plus(m, 100);
-    if (!punkte.size) for (const [t, l] of index.nachToy) if (abstand(t, toy) === 1) for (const m of l) plus(m, 45);
+    const t = nachToyNr(toy, index);   // inkl. Korrektur von O/0, I/1 …
+    for (const m of t.genau) plus(m, 100);
+    for (const m of t.aehnlich) plus(m, 45);
   }
   const name = r?.name || (hinweis && !toy ? hinweis : "");
   const nr = (String(r?.sammlernr || "").match(/^\s*(\d{1,3})\s*\//) || [])[1]?.padStart(3, "0");
@@ -181,6 +182,37 @@ export function zuordnen(r, index, hinweis = "") {
   }
   // bei Gleichstand neuere zuerst – im Laden findet man meist aktuelle Autos
   return [...punkte].map(([id, p]) => ({ m: index.modell(id), p })).sort((a, b) => b.p - a.p || b.m.jahr - a.m.jahr);
+}
+
+// Rückseite der Karte: Dort steht unten klein der Code „JKX60-ND710 (G1) 21A“ – der Teil vor dem Bindestrich
+// ist die Toy-Nr. und bestimmt die Ausführung (inkl. Farbe) fast immer eindeutig.
+const SCHEMA_RUECKSEITE = { type: "OBJECT", properties: {
+  code: { type: "STRING", description: "der ganze Code, z. B. JKX60-ND710 (G1) 21A; leer, wenn nicht lesbar" },
+  toy: { type: "STRING", description: "nur der Teil vor dem Bindestrich, z. B. JKX60" },
+}, required: ["code", "toy"] };
+const AUFTRAG_RUECKSEITE = `Das ist die Rückseite einer Hot-Wheels-Verpackung. Unten steht klein ein Code wie „JKX60-ND710 (G1) 21A“
+(manchmal auch nur „JKX60“). Lies diesen Code genau ab. Die Toy-Nummer ist der Teil vor dem Bindestrich: meist 3 Buchstaben und 2 Ziffern.
+Achte auf Verwechslungen wie 0/O, 1/I, 5/S, 8/B. Nichts erfinden – unlesbar heisst leer.`;
+
+// Kandidaten zu einer gelesenen Toy-Nr.: genau, sonst mit einem abweichenden Zeichen (Lesefehler)
+export function nachToyNr(text, index) {
+  const roh = String(text || "").toUpperCase().split(/[-–\s(]/)[0].replace(/[^A-Z0-9]/g, "");
+  if (roh.length < 4) return { toy: roh, genau: [], aehnlich: [] };
+  if (!index.nachToy.has(roh) && roh.length === 5) {
+    // übliche Verwechslungen: vorne Buchstaben, hinten Ziffern (O/0, I/1, S/5, B/8, Z/2, G/6)
+    const zuBuchstabe = { 0: "O", 1: "I", 5: "S", 8: "B", 2: "Z", 6: "G" }, zuZiffer = { O: "0", D: "0", Q: "0", I: "1", L: "1", S: "5", B: "8", Z: "2", G: "6" };
+    const fest = [...roh.slice(0, 3)].map(c => zuBuchstabe[c] || c).join("") + [...roh.slice(3)].map(c => zuZiffer[c] || c).join("");
+    if (index.nachToy.has(fest)) return { toy: fest, genau: index.nachToy.get(fest), aehnlich: [] };
+  }
+  const genau = index.nachToy.get(roh) || [];
+  const aehnlich = genau.length ? [] : [...index.nachToy].filter(([t]) => abstand(t, roh) === 1).flatMap(([, l]) => l);
+  return { toy: roh, genau, aehnlich };
+}
+export async function rueckseite(foto, index, schluessel) {
+  const bild = await alsTeil(foto, 1600);   // grösser lassen: der Code ist sehr klein gedruckt
+  const r = await gemini(schluessel, [{ text: AUFTRAG_RUECKSEITE }, bild], SCHEMA_RUECKSEITE);
+  const t = nachToyNr(r.toy || r.code, index);
+  return { ...t, code: r.code || r.toy || "" };
 }
 
 // Ganze Erkennung. Ergebnis: {antwort, tipp: [ids], status: "ok"|"pruefen", anfragen}

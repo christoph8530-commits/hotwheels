@@ -1,6 +1,6 @@
 // Hot-Wheels-Sammlung – eigenständige Web-App (Vorlage: Pokémon-App).
 // Daten: privates GitHub-Repo (speicher.js). Verzeichnis und Erkennung: erkennung.js (Hot Wheels Wiki + Gemini).
-import { Index, bestimme, bildUrl, norm, haken } from "./erkennung.js";
+import { Index, bestimme, rueckseite, bildUrl, norm, haken } from "./erkennung.js";
 import { GitHubSpeicher, TestSpeicher, PFADE } from "./speicher.js";
 
 // ---------- Grundlagen ----------
@@ -10,7 +10,7 @@ const heute = () => new Date().toISOString().slice(0, 10);
 const datumText = d => d ? new Date(d + "T12:00:00").toLocaleDateString("de-CH") : "";
 const DIESES_JAHR = new Date().getFullYear();
 const TEST = new URLSearchParams(location.search).has("test");
-const VERSION = "1.1 (12.10.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
+const VERSION = "1.2 (12.10.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
 
 const lies = k => { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } };
 const merke = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch (e) {} };
@@ -402,7 +402,9 @@ function oeffneNeu(vor = {}) {
   $("form-neu").reset(); neuFoto = null; wahl = null; erkennung = null; kandidaten = []; frei = false; speicherId = null;
   $("n-vorschau").innerHTML = `<div class="leerbild"></div>`;
   $("n-meldung").className = "meldung";
-  $("n-meldung").textContent = kannErkennen() ? "Fotografiere das Auto, am besten verpackt mit der Karte. Oder such es unten." : "Such das Auto unten nach Name oder Toy-Nr. Für die Foto-Erkennung fehlt der Gemini-Schlüssel.";
+  $("n-meldung").textContent = kannErkennen() ? "Verpackt: am sichersten die Rückseite (Code unten, z. B. JKX60). Sonst die Vorderseite oder das Auto fotografieren, oder unten suchen."
+    : "Such das Auto unten nach Name oder Toy-Nr. (Code unten auf der Kartenrückseite, z. B. JKX60). Für die Foto-Erkennung fehlt der Gemini-Schlüssel.";
+  $("n-rueck-knopf").hidden = !kannErkennen();
   $("n-speichern-meldung").textContent = ""; $("n-erkennen").hidden = true; $("n-frei").hidden = true;
   $("n-kandidaten").hidden = true; $("n-besitz").hidden = true;
   $("n-zustand").value = vor.zustand || "verpackt"; $("n-herkunft").value = vor.herkunft || "Gekauft";
@@ -451,6 +453,41 @@ async function fotoGewaehlt(e) {
   if (kannErkennen()) erkenne();
 }
 $("n-foto").addEventListener("change", fotoGewaehlt);
+// Rückseite: nur die Toy-Nr. lesen („JKX60-ND710 (G1) 21A“ → JKX60). Das Foto wird nicht gespeichert,
+// gespeichert wird nur ein Foto der Vorderseite bzw. des Autos.
+$("n-rueck").addEventListener("change", async e => {
+  const datei = e.target.files && e.target.files[0]; if (!datei) return;
+  e.target.value = "";
+  const meldung = $("n-meldung"), knopf = $("n-rueck-knopf");
+  meldung.className = "meldung"; meldung.textContent = "Lese den Code auf der Rückseite …";
+  knopf.classList.add("laedt");
+  $("n-kandidaten").hidden = true; $("n-korrigieren").hidden = true;
+  try {
+    const r = await rueckseite(await verkleinere(datei, 2000), IDX, EINST.gemini);
+    const treffer = r.genau.length ? r.genau : r.aehnlich;
+    if (!treffer.length) {
+      meldung.textContent = r.code ? `Gelesen: „${r.code}“ – diese Toy-Nr. ist nicht im Verzeichnis. Prüf sie und tipp sie unten ein, oder fotografiere die Vorderseite.`
+                                   : "Den Code konnte ich nicht lesen. Bitte näher ran, ohne Spiegelung, oder die Toy-Nr. unten eintippen.";
+      if (r.toy) $("n-suche").value = r.toy;
+      return;
+    }
+    kandidaten = treffer.map(m => m.id); $("n-suche").value = r.toy;
+    waehle(kandidaten[0]);
+    const m = IDX.modell(kandidaten[0]);
+    if (r.genau.length === 1) {
+      meldung.textContent = `Erkannt über die Toy-Nr. ${r.toy}: ${m.name}, ${m.jahr}${m.farbe ? ", " + m.farbe : ""}.`;
+    } else if (r.genau.length) {
+      meldung.textContent = `Toy-Nr. ${r.toy} gibt es ${r.genau.length}× – bitte die richtige Ausführung antippen.`;
+      zeigeKandidaten("Welche Ausführung ist es?");
+    } else {
+      meldung.textContent = `Gelesen: „${r.code}“. Genau so gibt es die Nummer nicht, vermutlich ein Lesefehler – bitte das richtige Auto antippen.`;
+      zeigeKandidaten("Welches Auto ist es?");
+    }
+  } catch (err) {
+    meldung.className = "meldung fehler";
+    meldung.textContent = FEHLERTEXT[err?.code] || "Die Rückseite konnte nicht gelesen werden. Bitte die Toy-Nr. unten eintippen.";
+  } finally { knopf.classList.remove("laedt"); }
+});
 $("n-galerie").addEventListener("change", fotoGewaehlt);
 $("n-erkennen").addEventListener("click", () => erkenne());
 

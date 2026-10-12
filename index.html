@@ -109,7 +109,8 @@ header { display: grid; gap: 6px; }
 .knopf { font-weight: 700; font-size: 0.85rem; color: var(--accent); background: transparent; border: 1px solid var(--line); border-radius: 99px; padding: 3px 11px; cursor: pointer; font-family: var(--body); }
 .knopf.voll { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .knopf.gefahr { color: var(--rot); }
-.knopf:disabled { opacity: 0.6; cursor: default; }
+.knopf:disabled, .knopf.laedt { opacity: 0.6; cursor: default; }
+.knopf.laedt { pointer-events: none; }
 
 .jahre { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .setliste { display: grid; gap: 8px; }
@@ -248,12 +249,13 @@ dialog::backdrop { background: rgb(8 10 16 / 0.7); }
       <div id="n-vorschau"><div class="leerbild"></div></div>
       <div class="aktionen">
         <label class="knopf voll" id="n-foto-knopf">Foto machen<input id="n-foto" type="file" accept="image/*" capture="environment" hidden></label>
+        <label class="knopf voll" id="n-rueck-knopf" hidden>Rückseite fotografieren<input id="n-rueck" type="file" accept="image/*" capture="environment" hidden></label>
         <label class="knopf" id="n-galerie-knopf">Aus Galerie<input id="n-galerie" type="file" accept="image/*" hidden></label>
         <button type="button" class="knopf" id="n-erkennen" hidden>Auto erkennen</button>
-        <span class="meldung" id="n-meldung">Fotografiere das Auto, am besten verpackt mit der Karte. Oder such es unten.</span>
+        <span class="meldung" id="n-meldung">Verpackt: am sichersten die Rückseite (Code unten, z. B. JKX60). Sonst die Vorderseite oder das Auto fotografieren, oder unten suchen.</span>
       </div>
     </div>
-    <div class="suchzeile"><label>Suchen <span class="muted" style="font-weight:400">(Name, Toy-Nr. oder Jahr + Nr.)</span><input id="n-suche" type="search" autocomplete="off" spellcheck="false" placeholder="z. B. Skyline 2025 oder HYW18"></label><button type="button" class="knopf" id="n-suchen">Suchen</button></div>
+    <div class="suchzeile"><label>Suchen <span class="muted" style="font-weight:400">(Name, Toy-Nr. oder Jahr + Nr.)</span><input id="n-suche" type="search" autocomplete="off" spellcheck="false" placeholder="z. B. JKX60, Skyline 2025 oder 2025 88"></label><button type="button" class="knopf" id="n-suchen">Suchen</button></div>
     <div class="kandidaten" id="n-kandidaten" hidden></div>
     <div class="besitz" id="n-besitz" hidden></div>
     <button type="button" class="knopf" id="n-korrigieren" hidden style="justify-self:start">Falsch erkannt? Anderes Auto wählen</button>
