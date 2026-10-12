@@ -10,7 +10,7 @@ const heute = () => new Date().toISOString().slice(0, 10);
 const datumText = d => d ? new Date(d + "T12:00:00").toLocaleDateString("de-CH") : "";
 const DIESES_JAHR = new Date().getFullYear();
 const TEST = new URLSearchParams(location.search).has("test");
-const VERSION = "1.2 (12.10.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
+const VERSION = "1.3 (12.10.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
 
 const lies = k => { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } };
 const merke = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch (e) {} };
@@ -112,7 +112,7 @@ function metaText(m) {
 }
 function kachel(m, e) {   // Modell aus dem Verzeichnis, mit oder ohne Besitz
   const anzahl = e?.anzahl || 0;
-  const bild = (e?.foto && fotoUrl(e.foto)) || wikiBild(m);
+  const bild = wikiBild(m) || (e?.foto && fotoUrl(e.foto));   // Produktfoto aus dem Wiki, eigenes nur ohne
   return `<button type="button" class="karte${anzahl ? "" : " fehlt"}" data-modell="${esc(m.id)}">
     <span class="bild">${bildHtml(bild, m.name)}</span>
     ${anzahl > 1 ? `<span class="stueck">×${anzahl}</span>` : ""}${anzahl ? `<span class="marke hat">✓ Hast du</span>` : `<span class="marke">Fehlt</span>`}
@@ -266,7 +266,7 @@ function verlauf() {
     <div><span class="muted">Verpackt / lose</span><span class="wert">${verpackt} / ${stueck - verpackt}</span><small class="muted">Autos</small></div>`;
   $("h-liste").innerHTML = eintraege.length ? eintraege.map(z => {
     const m = z.modell && IDX?.modell(z.modell);
-    return `<li><span class="streifen" style="background:var(--gruen)"></span>${bildHtml((z.foto && fotoUrl(z.foto)) || wikiBild(m, 160), z.name)}
+    return `<li><span class="streifen" style="background:var(--gruen)"></span>${bildHtml(wikiBild(m, 160) || (z.foto && fotoUrl(z.foto)), z.name)}
       <span class="name"${m ? ` data-modell="${esc(m.id)}" style="cursor:pointer"` : ""}>${esc(z.name)} ${Number(z.anzahl) > 1 ? `×${z.anzahl}` : ""}
         <span class="unter">${m ? `${m.jahr} · #${esc(m.nr)} · ${esc(serieVon(m).name)}` : "eigener Eintrag"} · ${z.zustand === "lose" ? "lose" : "verpackt"} · ${datumText(z.datum)} · ${esc(z.herkunft || "")}${z.notiz ? " · " + esc(z.notiz) : ""}</span></span>
       <span class="rechts">${schreibbar ? `<button type="button" class="knopf gefahr" data-loeschen="${esc(z.id)}">Löschen</button>` : ""}</span></li>`;
@@ -315,7 +315,7 @@ function zeigeModell(id) {
   const m = IDX.modell(id); if (!m) return;
   const e = inventar().map.get(id), s = serieVon(m);
   $("k-titel").textContent = m.name;
-  $("k-bild").innerHTML = bildHtml((e?.foto && fotoUrl(e.foto)) || wikiBild(m, 600), m.name);
+  $("k-bild").innerHTML = bildHtml(wikiBild(m, 600) || (e?.foto && fotoUrl(e.foto)), m.name);
   const besitz = e ? `<div class="besitz hat"><strong>Hast du: ${e.anzahl}×</strong> (${[e.verpackt ? e.verpackt + " verpackt" : "", e.lose ? e.lose + " lose" : ""].filter(Boolean).join(", ")})</div>`
                    : `<div class="besitz fehlt"><strong>Fehlt dir noch.</strong></div>`;
   $("k-info").innerHTML = `${besitz}
@@ -399,7 +399,7 @@ $("n-frei-knopf").addEventListener("click", () => { frei = true; wahl = null; $(
 function oeffneNeu(vor = {}) {
   const m = vor.modus || "neu";
   if (m === "neu" && !schreibbar) { toast("Zum Speichern bitte zuerst GitHub in den Einstellungen einrichten."); return; }
-  $("form-neu").reset(); neuFoto = null; wahl = null; erkennung = null; kandidaten = []; frei = false; speicherId = null;
+  $("form-neu").reset(); sucheVonHand = false; neuFoto = null; wahl = null; erkennung = null; kandidaten = []; frei = false; speicherId = null;
   $("n-vorschau").innerHTML = `<div class="leerbild"></div>`;
   $("n-meldung").className = "meldung";
   $("n-meldung").textContent = kannErkennen() ? "Verpackt: am sichersten die Rückseite (Code unten, z. B. JKX60). Sonst die Vorderseite oder das Auto fotografieren, oder unten suchen."
@@ -432,6 +432,9 @@ function dialogSuche() {
   zeigeKandidaten(kandidaten.length === 1 ? "Gefunden" : "Welches Auto ist es?");
 }
 $("n-suchen").addEventListener("click", dialogSuche);
+// Nur selbst Eingetipptes ist ein Hinweis für die Foto-Erkennung, nicht eine Nummer, die die App eingetragen hat
+let sucheVonHand = false;
+$("n-suche").addEventListener("input", () => { sucheVonHand = !!$("n-suche").value.trim(); });
 $("n-suche").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); dialogSuche(); } });
 
 async function verkleinere(datei, max = 1600) {
@@ -474,7 +477,9 @@ $("n-rueck").addEventListener("change", async e => {
     kandidaten = treffer.map(m => m.id); $("n-suche").value = r.toy;
     waehle(kandidaten[0]);
     const m = IDX.modell(kandidaten[0]);
-    if (r.genau.length === 1) {
+    if (r.genau.length === 1 && r.korrigiert) {
+      meldung.textContent = `Gelesen „${r.korrigiert}“ – vermutlich Toy-Nr. ${r.toy}: ${m.name}, ${m.jahr}${m.farbe ? ", " + m.farbe : ""}. Stimmt das Bild? Sonst die Nummer unten eintippen.`;
+    } else if (r.genau.length === 1) {
       meldung.textContent = `Erkannt über die Toy-Nr. ${r.toy}: ${m.name}, ${m.jahr}${m.farbe ? ", " + m.farbe : ""}.`;
     } else if (r.genau.length) {
       meldung.textContent = `Toy-Nr. ${r.toy} gibt es ${r.genau.length}× – bitte die richtige Ausführung antippen.`;
@@ -504,7 +509,7 @@ async function erkenne() {
   $("n-kandidaten").hidden = true; $("n-besitz").hidden = true; $("n-korrigieren").hidden = true;
   const meldung = $("n-meldung"); meldung.className = "meldung";
   try {
-    erkennung = await bestimme(neuFoto, IDX, EINST.gemini, t => { meldung.textContent = t; }, $("n-suche").value.trim());
+    erkennung = await bestimme(neuFoto, IDX, EINST.gemini, t => { meldung.textContent = t; }, sucheVonHand ? $("n-suche").value.trim() : "");
     const r = erkennung.antwort;
     kandidaten = erkennung.tipp;
     if (r && !r.ist_auto) { meldung.textContent = "Auf dem Foto ist kein Hot-Wheels-Auto zu erkennen. Bitte nochmal fotografieren oder suchen."; return; }
@@ -521,7 +526,7 @@ async function erkenne() {
     waehle(kandidaten[0]);
     const m = IDX.modell(kandidaten[0]);
     if (erkennung.status === "ok") {
-      meldung.textContent = `Erkannt: ${m.name}, ${m.jahr} #${m.nr}${VAR_TEXT(m) ? " (" + VAR_TEXT(m) + ")" : ""}. Stimmt das Bild?`;
+      meldung.textContent = `Erkannt: ${m.name}, ${m.jahr}${m.nr ? " #" + m.nr : ""}${m.farbe ? ", " + m.farbe : ""}${VAR_TEXT(m) ? " (" + VAR_TEXT(m) + ")" : ""}. Stimmt das Bild?`;
       $("n-korrigieren").hidden = kandidaten.length < 2;
       $("n-kandidaten").hidden = true;
     } else {
@@ -553,10 +558,12 @@ $("form-neu").addEventListener("submit", async ev => {
   }
   const anzahl = Math.max(1, Math.min(99, parseInt($("n-anzahl").value, 10) || 1));
   const id = speicherId ??= neueId();
-  knopf.disabled = true; meldung.textContent = neuFoto ? "Foto wird hochgeladen …" : "Speichert …";
+  knopf.disabled = true; meldung.textContent = neuFoto && !(eintrag.modell && IDX.modell(eintrag.modell)?.bild) ? "Foto wird hochgeladen …" : "Speichert …";
   try {
     let foto = null;
-    if (neuFoto) { foto = `${PFADE.fotoOrdner}${id}.jpg`; await speicher.fotoHochladen(foto, neuFoto, `Foto: ${eintrag.name}`); FOTOURL[foto] = URL.createObjectURL(neuFoto); }
+    // eigenes Foto nur hochladen, wenn es kein Produktfoto im Wiki gibt (freier Eintrag oder Modell ohne Bild)
+    const mitWikiBild = !!(eintrag.modell && IDX.modell(eintrag.modell)?.bild);
+    if (neuFoto && !mitWikiBild) { foto = `${PFADE.fotoOrdner}${id}.jpg`; await speicher.fotoHochladen(foto, neuFoto, `Foto: ${eintrag.name}`); FOTOURL[foto] = URL.createObjectURL(neuFoto); }
     meldung.textContent = "Speichert …";
     const neu = { id, ...eintrag, zustand: $("n-zustand").value, anzahl, foto, herkunft: $("n-herkunft").value,
       datum: $("n-datum").value || heute(), notiz: $("n-notiz").value.trim(), erstellt: new Date().toISOString() };

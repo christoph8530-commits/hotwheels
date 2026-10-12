@@ -2,6 +2,7 @@
 // die App ordnet das Auto im Verzeichnis zu. Ist es nicht eindeutig, vergleicht Gemini das Foto
 // mit den Wiki-Bildern der Kandidaten (zweite Anfrage).
 export const MODELL = "gemini-flash-lite-latest";   // Alias: rückt automatisch auf die neueste Version nach
+export const MODELL_STARK = "gemini-flash-latest";  // für kleine Schrift (Code auf der Rückseite), nur wenn nötig
 export const haken = { gemini: null };              // zum Testen: Gemini-Aufruf ersetzen
 const BILDER = "https://static.wikia.nocookie.net/hotwheels/images/";
 
@@ -195,24 +196,42 @@ const AUFTRAG_RUECKSEITE = `Das ist die Rückseite einer Hot-Wheels-Verpackung. 
 Achte auf Verwechslungen wie 0/O, 1/I, 5/S, 8/B. Nichts erfinden – unlesbar heisst leer.`;
 
 // Kandidaten zu einer gelesenen Toy-Nr.: genau, sonst mit einem abweichenden Zeichen (Lesefehler)
+const ZU_BUCHSTABE = { 0: "O", 1: "I", 5: "S", 8: "B", 2: "Z", 6: "G" };
+const ZU_ZIFFER = { O: "0", D: "0", Q: "0", I: "1", L: "1", S: "5", B: "8", Z: "2", G: "6" };
+// übliche Verwechslungen: vorne Buchstaben, hinten Ziffern (O/0, I/1, S/5, B/8, Z/2, G/6)
+const korrigiert = t => [...t.slice(0, 3)].map(c => ZU_BUCHSTABE[c] || c).join("") + [...t.slice(3)].map(c => ZU_ZIFFER[c] || c).join("");
+
+// Kandidaten zu einem gelesenen Code. Gesucht wird jede 5-stellige Folge, die eine bekannte Toy-Nr. ist –
+// egal ob Gemini „JKX59“, „JKX59-D710 (G1)“ oder „JKX59D710“ liefert. Sonst: ein abweichendes Zeichen (Lesefehler).
 export function nachToyNr(text, index) {
-  const roh = String(text || "").toUpperCase().split(/[-–\s(]/)[0].replace(/[^A-Z0-9]/g, "");
+  const roh = String(text || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const vorn = String(text || "").toUpperCase().split(/[-–\s(]/)[0].replace(/[^A-Z0-9]/g, "");
   if (roh.length < 4) return { toy: roh, genau: [], aehnlich: [] };
-  if (!index.nachToy.has(roh) && roh.length === 5) {
-    // übliche Verwechslungen: vorne Buchstaben, hinten Ziffern (O/0, I/1, S/5, B/8, Z/2, G/6)
-    const zuBuchstabe = { 0: "O", 1: "I", 5: "S", 8: "B", 2: "Z", 6: "G" }, zuZiffer = { O: "0", D: "0", Q: "0", I: "1", L: "1", S: "5", B: "8", Z: "2", G: "6" };
-    const fest = [...roh.slice(0, 3)].map(c => zuBuchstabe[c] || c).join("") + [...roh.slice(3)].map(c => zuZiffer[c] || c).join("");
-    if (index.nachToy.has(fest)) return { toy: fest, genau: index.nachToy.get(fest), aehnlich: [] };
+  for (const kandidat of [vorn, roh]) {
+    if (index.nachToy.has(kandidat)) return { toy: kandidat, genau: index.nachToy.get(kandidat), aehnlich: [] };
   }
-  const genau = index.nachToy.get(roh) || [];
-  const aehnlich = genau.length ? [] : [...index.nachToy].filter(([t]) => abstand(t, roh) === 1).flatMap(([, l]) => l);
-  return { toy: roh, genau, aehnlich };
+  for (let i = 0; i + 5 <= roh.length; i++) {
+    const t = roh.slice(i, i + 5);
+    if (index.nachToy.has(t)) return { toy: t, genau: index.nachToy.get(t), aehnlich: [] };
+    const k = korrigiert(t);   // nur vermutet – die App bittet dann ums Prüfen
+    if (index.nachToy.has(k)) return { toy: k, genau: index.nachToy.get(k), aehnlich: [], korrigiert: t };
+  }
+  const ziel = vorn.length >= 4 && vorn.length <= 6 ? vorn : roh.slice(0, 5);
+  const aehnlich = [...index.nachToy].filter(([t]) => abstand(t, ziel) === 1).flatMap(([, l]) => l);
+  return { toy: ziel, genau: [], aehnlich };
 }
 export async function rueckseite(foto, index, schluessel) {
-  const bild = await alsTeil(foto, 1600);   // grösser lassen: der Code ist sehr klein gedruckt
-  const r = await gemini(schluessel, [{ text: AUFTRAG_RUECKSEITE }, bild], SCHEMA_RUECKSEITE);
-  const t = nachToyNr(r.toy || r.code, index);
-  return { ...t, code: r.code || r.toy || "" };
+  const bild = await alsTeil(foto, 3072);   // gross lassen: der Code ist sehr klein gedruckt
+  let r = await gemini(schluessel, [{ text: AUFTRAG_RUECKSEITE }, bild], SCHEMA_RUECKSEITE);
+  let t = nachToyNr(`${r.toy || ""} ${r.code || ""}`, index);
+  if (!t.genau.length) {   // nichts Eindeutiges: einmal mit dem stärkeren Modell nachlesen
+    try {
+      const r2 = await gemini(schluessel, [{ text: AUFTRAG_RUECKSEITE }, bild], SCHEMA_RUECKSEITE, MODELL_STARK);
+      const t2 = nachToyNr(`${r2.toy || ""} ${r2.code || ""}`, index);
+      if (t2.genau.length || (!t.aehnlich.length && t2.aehnlich.length)) { r = r2; t = t2; }
+    } catch (e) { if (e.code === "kontingent" || e.code === "offline") throw e; }
+  }
+  return { ...t, code: [r.code, r.toy].filter(Boolean)[0] || "" };
 }
 
 // Ganze Erkennung. Ergebnis: {antwort, tipp: [ids], status: "ok"|"pruefen", anfragen}
