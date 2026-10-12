@@ -179,6 +179,8 @@ dialog::backdrop { background: rgb(8 10 16 / 0.7); }
 .willkommen { display: grid; gap: 10px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
 .versionen { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
 .quelle { font-size: 0.8rem; color: var(--muted); }
+.preislinks { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; font-size: 0.92rem; }
+.preislinks .knopf { text-decoration: none; }
 </style>
 </head>
 <body>
@@ -207,6 +209,7 @@ dialog::backdrop { background: rgb(8 10 16 / 0.7); }
       <select id="s-serie" aria-label="Serie"><option value="">Alle Serien</option></select>
       <select id="s-sort" aria-label="Sortierung"><option value="nr">Jahr und Nummer</option><option value="name">Name</option><option value="neu">Zuletzt hinzugefügt</option></select>
       <label class="check"><input id="s-doppelt" type="checkbox"> Doppelte</label>
+      <label class="check"><input id="s-wertvoll" type="checkbox"> Wertvolle</label>
       <label class="check"><input id="s-fehlend" type="checkbox"> Fehlende zeigen</label>
       <span class="treffer" id="s-treffer"></span>
     </div>
@@ -264,8 +267,9 @@ dialog::backdrop { background: rgb(8 10 16 / 0.7); }
       <label class="nur-neu">Zustand<select id="n-zustand"><option value="verpackt">Verpackt (auf Karte)</option><option value="lose">Lose (ausgepackt)</option></select></label>
       <label class="nur-neu">Anzahl<input id="n-anzahl" type="number" min="1" max="99" value="1" inputmode="numeric"></label>
       <label class="nur-neu">Herkunft<select id="n-herkunft"><option>Gekauft</option><option>Geschenkt</option><option>Getauscht</option><option>Gefunden</option></select></label>
+      <label class="nur-neu">Bezahlt (€, gesamt)<input id="n-preis" type="text" inputmode="decimal" placeholder="optional, z. B. 1,99"></label>
       <label class="nur-neu">Datum<input id="n-datum" type="date"></label>
-      <label class="breit nur-neu">Notiz<input id="n-notiz" type="text" placeholder="optional, z. B. Migros, Karte leicht geknickt"></label>
+      <label class="breit nur-neu">Notiz<input id="n-notiz" type="text" placeholder="optional, z. B. Billa, Karte leicht geknickt"></label>
     </div>
     <button type="button" class="knopf" id="n-frei-knopf" style="justify-self:start">Nicht gefunden? Frei eintragen</button>
   </form>

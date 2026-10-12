@@ -7,10 +7,13 @@ import { GitHubSpeicher, TestSpeicher, PFADE } from "./speicher.js";
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const heute = () => new Date().toISOString().slice(0, 10);
-const datumText = d => d ? new Date(d + "T12:00:00").toLocaleDateString("de-CH") : "";
+const datumText = d => d ? new Date(d + "T12:00:00").toLocaleDateString("de-AT") : "";
+const zahl = new Intl.NumberFormat("de-AT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const eur = v => v == null || isNaN(v) ? "–" : zahl.format(v) + " €";
+const betrag = s => { const n = parseFloat(String(s || "").replace(/\s/g, "").replace("€", "").replace(",", ".")); return isNaN(n) ? null : Math.round(n * 100) / 100; };
 const DIESES_JAHR = new Date().getFullYear();
 const TEST = new URLSearchParams(location.search).has("test");
-const VERSION = "1.4 (12.10.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
+const VERSION = "1.5 (12.10.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
 
 // Pokémon- und Hot-Wheels-App laufen beide unter christoph8530-commits.github.io und teilen sich damit den Gerätespeicher.
 // Darum hat hier jeder Name die Vorsilbe „hw-“ (auch die Zwischenspeicher), sonst überschreiben sich die Apps gegenseitig.
@@ -107,6 +110,23 @@ function bildHtml(src, alt = "") {
 let spaeterZeit;
 function spaeter() { clearTimeout(spaeterZeit); spaeterZeit = setTimeout(alles, 120); }
 
+// ---------- Wert ----------
+// Keine Preisquelle für Hot Wheels: Die App markiert, was sich zu prüfen lohnt, und verlinkt verkaufte Angebote.
+const WERTVOLL = /RLC|Red Line Club|Convention|Mail[- ]?In|Collector Edition|Elite 64|Treasure Hunt|Employee|Prototype/i;
+const wertvoll = m => !!m && ((m.marken || []).some(k => k === "TH" || k === "STH") || WERTVOLL.test(`${IDX.serien[m.s].name} ${m.exkl || ""} ${m.zusatz || ""}`));
+function suchbegriff(m) {   // so, wie Verkäufer Hot Wheels anbieten: Name, bei Besonderem „Super Treasure Hunt“ bzw. die Serie
+  const mk = m.marken || [], s = IDX.serien[m.s].name;
+  const zusatz = mk.includes("STH") ? "super treasure hunt" : mk.includes("TH") ? "treasure hunt" : m.x ? s.replace(/\s*(Series|Collection)$/i, "") : "";
+  return `hot wheels ${m.name.replace(/^'/, "")} ${zusatz}`.replace(/\s+/g, " ").trim();
+}
+function preisLinks(m) {
+  const q = encodeURIComponent(suchbegriff(m)), verkauft = "&LH_Sold=1&LH_Complete=1&_sop=13";
+  return `<div class="preislinks"><span class="muted">Wert prüfen (verkaufte Angebote):</span>
+    <a class="knopf" href="https://www.ebay.at/sch/i.html?_nkw=${q}${verkauft}" target="_blank" rel="noopener">eBay.at</a>
+    <a class="knopf" href="https://www.ebay.de/sch/i.html?_nkw=${q}${verkauft}" target="_blank" rel="noopener">eBay.de</a>
+    <a class="knopf" href="https://www.willhaben.at/iad/kaufen-und-verkaufen/marktplatz?keyword=${q}" target="_blank" rel="noopener">willhaben</a></div>`;
+}
+
 // ---------- Texte zu einem Modell ----------
 const serieVon = m => IDX.serien[m.s];
 const VAR_TEXT = m => m.var ? `${m.var}. Farbe${m.vtext ? " · " + m.vtext : ""}` : (m.vtext || "");
@@ -119,6 +139,7 @@ function chips(m, e) {
   if (m && VAR_TEXT(m)) c.push(`<span class="chip">${esc(VAR_TEXT(m))}</span>`);
   if (m?.exkl) c.push(`<span class="chip">${esc(m.exkl)}</span>`);
   if (m?.x) c.push(`<span class="chip">Sonderserie</span>`);
+  if (wertvoll(m) && !mk.some(k => k === "TH" || k === "STH")) c.push(`<span class="chip sth">wertvoll?</span>`);
   if (e?.lose && !e.verpackt) c.push(`<span class="chip">lose</span>`);
   return c.length ? `<span class="chips">${c.join("")}</span>` : "";
 }
@@ -170,19 +191,21 @@ const nrZahl = m => parseInt(m?.nr, 10) || 999;
 function sammlung() {
   const suche = $("suche").value.trim();
   const jahr = Number($("s-jahr").value) || null, serie = $("s-serie").value, sort = $("s-sort").value;
-  const doppelt = $("s-doppelt").checked, mitFehl = $("s-fehlend").checked && !doppelt && (jahr || serie !== "");
+  const doppelt = $("s-doppelt").checked, nurWert = $("s-wertvoll").checked;
+  const mitFehl = $("s-fehlend").checked && !doppelt && !nurWert && (jahr || serie !== "");
   const { liste: inv, map } = inventar();
   let html = "", text = "";
   if (suche.length >= 2) {
     // Suche im ganzen Verzeichnis: sofort sehen, ob du ein Modell schon hast
-    const treffer = IDX.suche(suche, 240).filter(m => (!jahr || m.jahr === jahr) && (serie === "" || m.s === Number(serie)));
+    const treffer = IDX.suche(suche, nurWert ? 50000 : 240).filter(m => (!jahr || m.jahr === jahr) && (serie === "" || m.s === Number(serie)) && (!nurWert || wertvoll(m)));
+    treffer.splice(240);
     const freie = inv.filter(e => !e.m && norm(e.name).includes(norm(suche)));
     treffer.sort((a, b) => (hat(b.id) ? 1 : 0) - (hat(a.id) ? 1 : 0));
     const anzahlHat = treffer.filter(m => hat(m.id)).length + freie.length;
     text = `${treffer.length + freie.length} Treffer · ${anzahlHat} hast du`;
     html = freie.map(kachelFrei).join("") + treffer.map(m => kachel(m, map.get(m.id))).join("");
   } else {
-    let liste = inv.filter(e => (!jahr || e.jahr === jahr) && (serie === "" || e.m?.s === Number(serie)) && (!doppelt || e.anzahl > 1));
+    let liste = inv.filter(e => (!jahr || e.jahr === jahr) && (serie === "" || e.m?.s === Number(serie)) && (!doppelt || e.anzahl > 1) && (!nurWert || wertvoll(e.m)));
     const eigene = liste.length;
     let fehlt = [];
     if (mitFehl) {
@@ -262,7 +285,7 @@ function fehlliste() {
       gesamt += fehlt.length;
       return `<li style="display:block;padding:8px 12px;background:var(--bg)"><strong>${esc(s.name)}</strong> <span class="muted">· ${fehlt.length} fehlen</span></li>` +
         fehlt.map(m => `<li><span class="streifen" style="background:${m.marken?.includes("STH") ? "var(--gold)" : m.marken?.includes("TH") ? "var(--gruen)" : "var(--accent)"}"></span>${bildHtml(wikiBild(m, 160), m.name)}
-          <span class="name" data-modell="${esc(m.id)}" style="cursor:pointer">${esc(m.name)}<span class="unter"><span class="mono">#${esc(m.nr)}</span> · ${m.snr}/${serieVon(m).gesamt}${m.toy ? ` · <span class="mono">${esc(m.toy)}</span>` : ""}${VAR_TEXT(m) ? " · " + esc(VAR_TEXT(m)) : ""}${m.exkl ? " · " + esc(m.exkl) : ""}${m.marken?.includes("STH") ? " · Super TH" : m.marken?.includes("TH") ? " · Treasure Hunt" : ""}</span></span>
+          <span class="name" data-modell="${esc(m.id)}" style="cursor:pointer">${esc(m.name)}<span class="unter">${m.nr ? `<span class="mono">#${esc(m.nr)}</span> · ` : ""}${m.snr}/${serieVon(m).gesamt}${m.toy ? ` · <span class="mono">${esc(m.toy)}</span>` : ""}${VAR_TEXT(m) ? " · " + esc(VAR_TEXT(m)) : ""}${m.exkl ? " · " + esc(m.exkl) : ""}${m.marken?.includes("STH") ? " · Super TH" : m.marken?.includes("TH") ? " · Treasure Hunt" : ""}</span></span>
           <span class="rechts">${schreibbar ? `<button type="button" class="knopf" data-kaufen="${esc(m.id)}">Gekauft</button>` : ""}</span></li>`).join("");
     }).join("");
     return teile ? `<section style="display:grid;gap:8px"><h2>${j}</h2><ol class="liste">${teile}</ol></section>` : "";
@@ -276,16 +299,18 @@ function verlauf() {
   const stueck = SAM.reduce((a, z) => a + (Number(z.anzahl) || 0), 0);
   const monat = heute().slice(0, 7), diesenMonat = SAM.filter(z => (z.datum || "").startsWith(monat)).reduce((a, z) => a + (Number(z.anzahl) || 0), 0);
   const verpackt = SAM.filter(z => z.zustand !== "lose").reduce((a, z) => a + (Number(z.anzahl) || 0), 0);
+  const mitPreis = SAM.filter(z => z.bezahlt != null), ausgegeben = mitPreis.reduce((a, z) => a + Number(z.bezahlt), 0);
+  const imMonat = mitPreis.filter(z => (z.datum || "").startsWith(monat)).reduce((a, z) => a + Number(z.bezahlt), 0);
   $("h-summen").innerHTML = `
-    <div><span class="muted">Erfasst</span><span class="wert">${stueck}</span><small class="muted">Autos in ${SAM.length} Einträgen</small></div>
-    <div><span class="muted">Diesen Monat</span><span class="wert">${diesenMonat}</span><small class="muted">neu dazugekommen</small></div>
-    <div><span class="muted">Verpackt / lose</span><span class="wert">${verpackt} / ${stueck - verpackt}</span><small class="muted">Autos</small></div>`;
+    <div><span class="muted">Erfasst</span><span class="wert">${stueck}</span><small class="muted">Autos in ${SAM.length} Einträgen, ${verpackt} verpackt</small></div>
+    <div><span class="muted">Diesen Monat</span><span class="wert">${diesenMonat}</span><small class="muted">neu dazugekommen${imMonat ? ", " + eur(imMonat) : ""}</small></div>
+    <div><span class="muted">Ausgegeben</span><span class="wert">${eur(ausgegeben)}</span><small class="muted">${mitPreis.length ? `${mitPreis.length} Einträge mit Preis` : "Preis beim Hinzufügen eintragen"}</small></div>`;
   $("h-liste").innerHTML = eintraege.length ? eintraege.map(z => {
     const m = z.modell && IDX?.modell(z.modell);
     return `<li><span class="streifen" style="background:var(--gruen)"></span>${bildHtml(wikiBild(m, 160) || (z.foto && fotoUrl(z.foto)), z.name)}
       <span class="name"${m ? ` data-modell="${esc(m.id)}" style="cursor:pointer"` : ""}>${esc(z.name)} ${Number(z.anzahl) > 1 ? `×${z.anzahl}` : ""}
-        <span class="unter">${m ? `${m.jahr} · #${esc(m.nr)} · ${esc(serieVon(m).name)}` : "eigener Eintrag"} · ${z.zustand === "lose" ? "lose" : "verpackt"} · ${datumText(z.datum)} · ${esc(z.herkunft || "")}${z.notiz ? " · " + esc(z.notiz) : ""}</span></span>
-      <span class="rechts">${schreibbar ? `<button type="button" class="knopf gefahr" data-loeschen="${esc(z.id)}">Löschen</button>` : ""}</span></li>`;
+        <span class="unter">${m ? `${m.jahr}${m.nr ? " · #" + esc(m.nr) : ""} · ${esc(serieVon(m).name)}` : "eigener Eintrag"} · ${z.zustand === "lose" ? "lose" : "verpackt"} · ${datumText(z.datum)} · ${esc(z.herkunft || "")}${z.notiz ? " · " + esc(z.notiz) : ""}</span></span>
+      <span class="rechts">${z.bezahlt != null ? eur(z.bezahlt) : ""}${schreibbar ? `<button type="button" class="knopf gefahr" data-loeschen="${esc(z.id)}">Löschen</button>` : ""}</span></li>`;
   }).join("") : `<li style="display:block;padding:14px"><span class="muted">Noch keine Einträge. Neue Autos erfasst du mit „＋ Auto“ unten rechts.</span></li>`;
 }
 
@@ -319,7 +344,7 @@ function fuelleSerien() {
   $("s-serie").disabled = !jahr;
 }
 $("s-jahr").addEventListener("input", () => { fuelleSerien(); alles(); });
-["s-serie", "s-sort", "s-doppelt", "s-fehlend", "f-jahr"].forEach(id => $(id).addEventListener("input", alles));
+["s-serie", "s-sort", "s-doppelt", "s-wertvoll", "s-fehlend", "f-jahr"].forEach(id => $(id).addEventListener("input", alles));
 $("s-fehlend").addEventListener("change", e => { merke("fehlende-zeigen", e.target.checked ? "1" : ""); if (e.target.checked && !$("s-jahr").value) { $("s-jahr").value = String(meineJahre()[0]); fuelleSerien(); alles(); } });
 
 // ---------- Dialoge ----------
@@ -338,6 +363,9 @@ function zeigeModell(id) {
     <div>${m.jahr} · Sammler-Nr. <span class="mono">${esc(m.nr || "–")}</span>${m.toy ? ` · Toy-Nr. <span class="mono">${esc(m.toy)}</span>` : ""}</div>
     <div>Serie: <strong>${esc(s.name)}</strong> ${m.snr ? `<span class="mono">${m.snr}/${s.gesamt}</span>` : ""}</div>
     ${chips(m)}${m.zusatz ? `<div class="muted">${esc(m.zusatz)}</div>` : ""}
+    ${e?.eintraege.some(z => z.bezahlt != null) ? `<div>Bezahlt: <strong class="num">${eur(e.eintraege.reduce((a, z) => a + (Number(z.bezahlt) || 0), 0))}</strong> für ${e.anzahl} Stück</div>` : ""}
+    ${wertvoll(m) ? `<div class="besitz hat" style="font-size:0.92rem"><strong>Potenziell wertvoll</strong> – ${m.marken?.includes("STH") ? "Super Treasure Hunt" : m.marken?.includes("TH") ? "Treasure Hunt" : esc(serieVon(m).name)}. Ein Blick auf die verkauften Angebote lohnt sich.</div>` : ""}
+    ${preisLinks(m)}
     <div><a href="https://hotwheels.fandom.com/wiki/Special:Search?query=${encodeURIComponent(m.name)}" target="_blank" rel="noopener">Im Hot Wheels Wiki ansehen</a></div>`;
   $("k-aktionen").innerHTML = schreibbar ? `<button type="button" class="knopf voll" id="k-mehr">${e ? "Weiteres Exemplar" : "Hinzufügen"}</button>` : "";
   if (schreibbar) $("k-mehr").onclick = () => { $("dlg-karte").close(); oeffneNeu({ modell: m.id, zustand: e?.eintraege.at(-1)?.zustand }); };
@@ -345,7 +373,7 @@ function zeigeModell(id) {
   const andere = IDX.ausfuehrungen(m).filter(x => x.id !== m.id).sort((a, b) => b.jahr - a.jahr || (a.var || 1) - (b.var || 1));
   $("k-versionen").innerHTML = andere.length ? `<strong>Andere Ausführungen (${andere.length})</strong><div class="versionen">${andere.slice(0, 30).map(x =>
     `<button type="button" class="kandidat" data-modell="${esc(x.id)}">${bildHtml(wikiBild(x, 200), x.name)}${hat(x.id) ? `<span class="hat-punkt">✓ ${hat(x.id)}</span>` : ""}
-      <span><strong>${x.jahr}</strong> · #${esc(x.nr)}<br><span class="muted">${esc(serieVon(x).name)}${VAR_TEXT(x) ? " · " + esc(VAR_TEXT(x)) : ""}</span></span></button>`).join("")}</div>` : "";
+      <span><strong>${x.jahr}</strong>${x.nr ? " · #" + esc(x.nr) : ""}<br><span class="muted">${esc(serieVon(x).name)}${VAR_TEXT(x) ? " · " + esc(VAR_TEXT(x)) : ""}</span></span></button>`).join("")}</div>` : "";
   if (!$("dlg-karte").open) $("dlg-karte").showModal(); else $("dlg-karte").scrollTop = 0;
 }
 function zeigeFrei(key) {
@@ -581,7 +609,7 @@ $("form-neu").addEventListener("submit", async ev => {
     const mitWikiBild = !!(eintrag.modell && IDX.modell(eintrag.modell)?.bild);
     if (neuFoto && !mitWikiBild) { foto = `${PFADE.fotoOrdner}${id}.jpg`; await speicher.fotoHochladen(foto, neuFoto, `Foto: ${eintrag.name}`); FOTOURL[foto] = URL.createObjectURL(neuFoto); }
     meldung.textContent = "Speichert …";
-    const neu = { id, ...eintrag, zustand: $("n-zustand").value, anzahl, foto, herkunft: $("n-herkunft").value,
+    const neu = { id, ...eintrag, zustand: $("n-zustand").value, anzahl, foto, herkunft: $("n-herkunft").value, bezahlt: betrag($("n-preis").value),
       datum: $("n-datum").value || heute(), notiz: $("n-notiz").value.trim(), erstellt: new Date().toISOString() };
     SAM = await speicher.aendern(PFADE.sammlung, l => l.some(x => x.id === id) ? l : [...l, neu], `Zugang: ${anzahl}× ${eintrag.name}`);
     speicherId = null;
