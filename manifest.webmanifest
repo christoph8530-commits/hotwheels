@@ -1,0 +1,17 @@
+{
+  "name": "Hot-Wheels-Sammlung",
+  "short_name": "Hot Wheels",
+  "description": "Meine Hot-Wheels-Autos: Sammlung, Serien, Fehlliste und Autos per Foto prüfen.",
+  "start_url": "./#sammlung",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f3f1ee",
+  "theme_color": "#c2410c",
+  "lang": "de",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
