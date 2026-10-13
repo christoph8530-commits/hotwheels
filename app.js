@@ -13,7 +13,7 @@ const eur = v => v == null || isNaN(v) ? "–" : zahl.format(v) + " €";
 const betrag = s => { const n = parseFloat(String(s || "").replace(/\s/g, "").replace("€", "").replace(",", ".")); return isNaN(n) ? null : Math.round(n * 100) / 100; };
 const DIESES_JAHR = new Date().getFullYear();
 const TEST = new URLSearchParams(location.search).has("test");
-const VERSION = "1.7 (13.10.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
+const VERSION = "1.8 (13.10.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
 
 // Pokémon- und Hot-Wheels-App laufen beide unter christoph8530-commits.github.io und teilen sich damit den Gerätespeicher.
 // Darum hat hier jeder Name die Vorsilbe „hw-“ (auch die Zwischenspeicher), sonst überschreiben sich die Apps gegenseitig.
@@ -115,6 +115,8 @@ function spaeter() { clearTimeout(spaeterZeit); spaeterZeit = setTimeout(alles, 
 // Keine Preisquelle für Hot Wheels: Die App markiert, was sich zu prüfen lohnt, und verlinkt verkaufte Angebote.
 const WERTVOLL = /RLC|Red Line Club|Convention|Mail[- ]?In|Collector Edition|Elite 64|Treasure Hunt|Employee|Prototype/i;
 const wertvoll = m => !!m && ((m.marken || []).some(k => k === "TH" || k === "STH") || WERTVOLL.test(`${IDX.serien[m.s].name} ${m.exkl || ""} ${m.zusatz || ""}`));
+const wertGrund = m => m.marken?.includes("STH") ? "Super Treasure Hunt" : m.marken?.includes("TH") ? "Treasure Hunt"
+  : (`${IDX.serien[m.s].name} ${m.exkl || ""} ${m.zusatz || ""}`.match(WERTVOLL) ? IDX.serien[m.s].name : "");
 function suchbegriff(m) {   // so, wie Verkäufer Hot Wheels anbieten: Name, bei Besonderem „Super Treasure Hunt“ bzw. die Serie
   const mk = m.marken || [], s = IDX.serien[m.s].name;
   const zusatz = mk.includes("STH") ? "super treasure hunt" : mk.includes("TH") ? "treasure hunt" : m.x ? s.replace(/\s*(Series|Collection)$/i, "") : "";
@@ -182,11 +184,17 @@ function bilanz() {
   let komplett = 0, alleSerien = 0;
   for (const j of meineJahre()) for (const s of gezaehlteSerien(j)) { const st = serieStand(s.i); alleSerien++; if (st.gesamt && st.hat === st.gesamt) komplett++; }
   const th = inv.filter(e => e.m?.marken?.includes("TH")).length, sth = inv.filter(e => e.m?.marken?.includes("STH")).length;
+  const wv = inv.filter(e => wertvoll(e.m)).length;
   $("bilanz").innerHTML = `
     <div><span class="label">Autos</span><span class="wert">${stueck}</span><small>${inv.length} verschiedene</small></div>
     <div><span class="label">Jahr ${jahr}</span><span class="wert">${jh} / ${jg}</span><small>${OPT.varianten ? "Modelle mit Farbvarianten" : "Modelle"}</small></div>
     <div><span class="label">Serien komplett</span><span class="wert">${komplett} / ${alleSerien}</span><small>in deinen Jahren</small></div>
-    <div><span class="label">Treasure Hunts</span><span class="wert">${th} + ${sth}</span><small>TH + Super TH</small></div>`;
+    <button type="button" id="b-wertvoll" aria-label="Wertvolle Autos anzeigen"><span class="label">Wertvoll ›</span><span class="wert">${wv}</span><small>${wv ? `${th} TH · ${sth} Super TH${wv - th - sth > 0 ? ` · ${wv - th - sth} weitere` : ""}` : "antippen: welche fehlen"}</small></button>`;
+  $("b-wertvoll").onclick = () => {   // eigene wertvolle zeigen – oder, solange es keine gibt, die fehlenden der eigenen Jahre
+    $("suche").value = ""; $("s-wertvoll").checked = true; $("s-doppelt").checked = false;
+    $("s-fehlend").checked = !wv; $("s-jahr").value = ""; fuelleSerien(); $("s-sort").value = "nr";
+    alles(); zeigeTab("sammlung"); $("panel-sammlung").scrollIntoView({ block: "start" });
+  };
 }
 
 const nrZahl = m => parseInt(m?.nr, 10) || 999;
@@ -397,7 +405,7 @@ function zeigeModell(id) {
     <div>Serie: <strong>${esc(s.name)}</strong> ${m.snr ? `<span class="mono">${m.snr}/${s.gesamt}</span>` : ""}</div>
     ${chips(m)}${m.zusatz ? `<div class="muted">${esc(m.zusatz)}</div>` : ""}
     ${e?.eintraege.some(z => z.bezahlt != null) ? `<div>Bezahlt: <strong class="num">${eur(e.eintraege.reduce((a, z) => a + (Number(z.bezahlt) || 0), 0))}</strong> für ${e.anzahl} Stück</div>` : ""}
-    ${wertvoll(m) ? `<div class="besitz hat" style="font-size:0.92rem"><strong>Potenziell wertvoll</strong> – ${m.marken?.includes("STH") ? "Super Treasure Hunt" : m.marken?.includes("TH") ? "Treasure Hunt" : esc(serieVon(m).name)}. Ein Blick auf die verkauften Angebote lohnt sich.</div>` : ""}
+    ${wertvoll(m) ? `<div class="besitz hat" style="font-size:0.92rem"><strong>Potenziell wertvoll</strong> – ${esc(wertGrund(m))}. Ein Blick auf die verkauften Angebote lohnt sich.</div>` : ""}
     ${preisLinks(m)}
     <div><a href="https://hotwheels.fandom.com/wiki/Special:Search?query=${encodeURIComponent(m.name)}" target="_blank" rel="noopener">Im Hot Wheels Wiki ansehen</a></div>`;
   $("k-aktionen").innerHTML = schreibbar ? `<button type="button" class="knopf voll" id="k-mehr">${e ? "Weiteres Exemplar" : "Hinzufügen"}</button>` : "";
@@ -454,11 +462,14 @@ function zeigeBesitz() {
   const verwandtText = verwandt.length ? `<div class="muted" style="font-size:0.88rem">Andere Ausführungen hast du: ${verwandt.slice(0, 4).map(x => `${x.jahr}${VAR_TEXT(x) ? " (" + esc(VAR_TEXT(x)) + ")" : ""}`).join(", ")}${verwandt.length > 4 ? " …" : ""}</div>` : "";
   feld.hidden = false;
   feld.className = "besitz " + (e ? "hat" : "fehlt");
-  feld.innerHTML = `<div class="zeile">${wikiBild(m) ? `<img src="${esc(wikiBild(m))}" alt="Bild aus dem Verzeichnis" crossorigin="anonymous">` : ""}<div>
+  const wert = wertvoll(m);
+  if (wert && vibriertFuer !== m.id) { vibriertFuer = m.id; try { navigator.vibrate?.([120, 60, 120]); } catch (err) {} }
+  feld.innerHTML = `${wert ? `<div class="wert-alarm">⚠ Potenziell wertvoll! <span>${esc(wertGrund(m))}</span></div>` : ""}<div class="zeile">${wikiBild(m) ? `<img src="${esc(wikiBild(m))}" alt="Bild aus dem Verzeichnis" crossorigin="anonymous">` : ""}<div>
     ${e ? `<strong class="gross-text">Hast du schon</strong><div>${e.anzahl}× (${[e.verpackt ? e.verpackt + " verpackt" : "", e.lose ? e.lose + " lose" : ""].filter(Boolean).join(", ")}).${modus === "neu" ? " Das wäre ein weiteres Exemplar." : ""}</div>`
         : `<strong class="gross-text">Fehlt dir noch!</strong>`}
-    <div class="muted" style="font-size:0.88rem">${auto}</div>${verwandtText}</div></div>`;
+    <div class="muted" style="font-size:0.88rem">${auto}</div>${verwandtText}</div></div>${wert ? preisLinks(m) : ""}`;
 }
+let vibriertFuer = null;   // pro erkanntem Auto nur einmal vibrieren
 function setzeModus(m) {
   modus = m;
   $("neu-titel").textContent = m === "pruefen" ? "Auto prüfen" : "Auto hinzufügen";
