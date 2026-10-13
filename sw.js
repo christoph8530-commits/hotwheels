@@ -1,7 +1,7 @@
 // Service Worker: hält die App, das Modellverzeichnis und die Wiki-Bilder offline bereit.
 // Daten von GitHub und Anfragen an Gemini laufen nie über den Zwischenspeicher.
 // Alle Zwischenspeicher heissen „hw-…“: Die Pokémon-App liegt unter derselben Adresse und hat ihre eigenen („app-…“).
-const VERSION = "v7";
+const VERSION = "v8";
 const APP = ["./", "index.html", "app.js", "erkennung.js", "speicher.js", "manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png", "daten/modell-index.json"];
 
 self.addEventListener("install", e => {

@@ -13,7 +13,7 @@ const eur = v => v == null || isNaN(v) ? "–" : zahl.format(v) + " €";
 const betrag = s => { const n = parseFloat(String(s || "").replace(/\s/g, "").replace("€", "").replace(",", ".")); return isNaN(n) ? null : Math.round(n * 100) / 100; };
 const DIESES_JAHR = new Date().getFullYear();
 const TEST = new URLSearchParams(location.search).has("test");
-const VERSION = "1.6 (12.10.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
+const VERSION = "1.7 (13.10.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
 
 // Pokémon- und Hot-Wheels-App laufen beide unter christoph8530-commits.github.io und teilen sich damit den Gerätespeicher.
 // Darum hat hier jeder Name die Vorsilbe „hw-“ (auch die Zwischenspeicher), sonst überschreiben sich die Apps gegenseitig.
@@ -194,7 +194,7 @@ function sammlung() {
   const suche = $("suche").value.trim();
   const jahr = Number($("s-jahr").value) || null, serie = $("s-serie").value, sort = $("s-sort").value;
   const doppelt = $("s-doppelt").checked, nurWert = $("s-wertvoll").checked;
-  const mitFehl = $("s-fehlend").checked && !doppelt && !nurWert && (jahr || serie !== "");
+  const mitFehl = $("s-fehlend").checked && !doppelt && (jahr || serie !== "" || nurWert);
   const { liste: inv, map } = inventar();
   let html = "", text = "";
   if (suche.length >= 2) {
@@ -210,7 +210,14 @@ function sammlung() {
     let liste = inv.filter(e => (!jahr || e.jahr === jahr) && (serie === "" || e.m?.s === Number(serie)) && (!doppelt || e.anzahl > 1) && (!nurWert || wertvoll(e.m)));
     const eigene = liste.length;
     let fehlt = [];
-    if (mitFehl) {
+    let bereich = "";
+    if (mitFehl && nurWert) {
+      // wertvolle, die fehlen: jede Ausführung einzeln, auch aus Sonderserien (RLC, Conventions, Mail-ins …)
+      const jahre = jahr ? [jahr] : meineJahre();
+      if (!jahr && serie === "") bereich = ` in ${jahre.join(", ")}`;
+      const serienListe = serie !== "" ? [Number(serie)] : jahre.flatMap(j => (IDX.serienJahr.get(j) || []).map(s => s.i));
+      fehlt = serienListe.flatMap(si => IDX.jeSerie[si]).filter(m => wertvoll(m) && !hat(m.id));
+    } else if (mitFehl) {
       const serienListe = serie !== "" ? [Number(serie)] : gezaehlteSerien(jahr).map(s => s.i);
       fehlt = serienListe.flatMap(si => serieStand(si).fehlt);
     }
@@ -220,13 +227,15 @@ function sammlung() {
       neu: (a, b) => (b.zuletzt || "").localeCompare(a.zuletzt || ""),
     };
     const alle = [...liste, ...fehlt.map(m => ({ key: m.id, m, name: m.name, jahr: m.jahr, anzahl: 0, zuletzt: "" }))].sort(sortierer[sort] || sortierer.nr);
-    text = `${eigene} Modelle` + (mitFehl ? ` · ${fehlt.length} fehlen` : "");
+    text = `${eigene} Modelle` + (mitFehl ? ` · ${fehlt.length} fehlen${bereich}` : "");
     html = alle.map(e => e.m ? kachel(e.m, e.anzahl ? e : null) : kachelFrei(e)).join("");
     if (!inv.length && !mitFehl && geladen)
       html = `<div class="willkommen"><strong>Noch keine Autos erfasst.</strong><span>Tippe unten rechts auf „＋ Auto“, fotografiere ein Auto oder such es nach Name. Mit „Prüfen“ siehst du, ob du ein Auto schon hast, ohne es zu speichern.</span></div>`;
   }
   $("s-treffer").textContent = text;
-  $("s-raster").innerHTML = html || `<div class="leer">Kein Auto passt zu diesen Filtern.</div>`;
+  $("s-raster").innerHTML = html || `<div class="leer">${nurWert && !mitFehl && suche.length < 2
+    ? "Du hast noch kein potenziell wertvolles Auto. Hak „Fehlende zeigen“ an, dann siehst du, welche es in deinen Jahren gibt."
+    : "Kein Auto passt zu diesen Filtern."}</div>`;
 }
 
 // Serien eines Jahres mit Fortschritt
