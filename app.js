@@ -13,7 +13,7 @@ const eur = v => v == null || isNaN(v) ? "–" : zahl.format(v) + " €";
 const betrag = s => { const n = parseFloat(String(s || "").replace(/\s/g, "").replace("€", "").replace(",", ".")); return isNaN(n) ? null : Math.round(n * 100) / 100; };
 const DIESES_JAHR = new Date().getFullYear();
 const TEST = new URLSearchParams(location.search).has("test");
-const VERSION = "1.9 (13.10.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
+const VERSION = "1.10 (14.10.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
 
 // Pokémon- und Hot-Wheels-App laufen beide unter christoph8530-commits.github.io und teilen sich damit den Gerätespeicher.
 // Darum hat hier jeder Name die Vorsilbe „hw-“ (auch die Zwischenspeicher), sonst überschreiben sich die Apps gegenseitig.
@@ -122,11 +122,15 @@ function suchbegriff(m) {   // so, wie Verkäufer Hot Wheels anbieten: Name, bei
   const zusatz = mk.includes("STH") ? "super treasure hunt" : mk.includes("TH") ? "treasure hunt" : m.x ? s.replace(/\s*(Series|Collection)$/i, "") : "";
   return `hot wheels ${m.name.replace(/^'/, "")} ${zusatz}`.replace(/\s+/g, " ").trim();
 }
+// Die Carz (Marktwerte aus echten Verkäufen): Die Suche dort braucht ein Login und der Katalog soll laut Die Carz
+// nicht automatisch abgegrast werden – darum eine Google-Suche nur auf diecarz.com nach Name und Jahr (steht im Seitentitel).
+const dieCarz = m => `https://www.google.com/search?q=${encodeURIComponent(`site:diecarz.com ${m.name.replace(/^'/, "")} ${m.jahr}`)}`;
 function preisLinks(m) {
   const q = encodeURIComponent(suchbegriff(m)), verkauft = "&LH_Sold=1&LH_Complete=1&_sop=13";
   return `<div class="preislinks"><span class="muted">Wert prüfen (verkaufte Angebote):</span>
     <a class="knopf" href="https://www.ebay.de/sch/i.html?_nkw=${q}${verkauft}" target="_blank" rel="noopener">eBay.de</a>
-    <a class="knopf" href="https://www.willhaben.at/iad/kaufen-und-verkaufen/marktplatz?keyword=${q}" target="_blank" rel="noopener">willhaben</a></div>`;
+    <a class="knopf" href="https://www.willhaben.at/iad/kaufen-und-verkaufen/marktplatz?keyword=${q}" target="_blank" rel="noopener">willhaben</a>
+    <a class="knopf" href="${dieCarz(m)}" target="_blank" rel="noopener">Die Carz</a></div>`;
 }
 
 // ---------- Texte zu einem Modell ----------
