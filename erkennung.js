@@ -132,6 +132,7 @@ Lies alles ab, was das Modell bestimmt: Modellname, Toy-Nummer (steht klein auf 
 Serienname und Platz in der Serie (z. B. HW Dream Garage 2/5). Bei einem ausgepackten Auto steht der Name meist auf dem Unterboden.
 Ist die Rückseite der Karte fotografiert: Dort steht ein Code wie „JKX57-ND710 (G1) 21A“ (oft oben beim Aufhängeloch) – das ist die Toy-Nummer.
 Auf der Rückseite sind oft mehrere Autos der Serie abgebildet; den Namen dann leer lassen, der Code genügt.
+Bei einem Multipack (mehrere Autos in einer Packung): den Packungsnamen als Serie, z. B. „Hot Wheels RacerVerse Disney“.
 Schreib nur, was du wirklich siehst; unlesbare Felder leer lassen. Erfinde keine Toy-Nummer.`;
 
 const SCHEMA_WAHL = { type: "OBJECT", properties: {
@@ -167,6 +168,17 @@ export function zuordnen(r, index, hinweis = "") {
   const nr = (String(r?.sammlernr || "").match(/^\s*(\d{1,3})\s*\//) || [])[1]?.padStart(3, "0");
   const snr = parseInt((String(r?.serie_nr || "").match(/^\s*(\d+)\s*\//) || [])[1], 10);
   const farbWoerter = norm(r?.farbe).split(" ").filter(w => w.length > 2);
+  // Serie bzw. Packung: Gemini liest bei Multipacks oft nur den Packungsnamen („Hot Wheels RacerVerse Disney“)
+  let serienTreffer = [], besteAehnl = 0;
+  for (const text of [r?.serie, r?.name].filter(t => t && norm(t).split(" ").length >= 2))
+    index.serien.forEach((s, i) => {
+      const a = aehnlich(text, s.name.replace(/\s*\d+-Pack$/i, ""));
+      if (a < 0.6 || a < besteAehnl) return;
+      if (a > besteAehnl) { besteAehnl = a; serienTreffer = []; }
+      serienTreffer.push(i);   // nur die am besten passenden Serien
+    });
+  if (serienTreffer.length && serienTreffer.length <= 40)
+    for (const i of serienTreffer) for (const m of index.jeSerie[i]) plus(m, 30 + (r?.jahr && m.jahr === r.jahr ? 10 : 0));
   const nameCache = new Map();   // Ähnlichkeit je Modellname nur einmal rechnen
   for (const m of index.modelle) {
     if (!nameCache.has(m.n)) nameCache.set(m.n, name ? aehnlich(name, m.name) : 0);

@@ -13,7 +13,7 @@ const eur = v => v == null || isNaN(v) ? "–" : zahl.format(v) + " €";
 const betrag = s => { const n = parseFloat(String(s || "").replace(/\s/g, "").replace("€", "").replace(",", ".")); return isNaN(n) ? null : Math.round(n * 100) / 100; };
 const DIESES_JAHR = new Date().getFullYear();
 const TEST = new URLSearchParams(location.search).has("test");
-const VERSION = "1.10 (14.10.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
+const VERSION = "1.11 (12.11.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
 
 // Pokémon- und Hot-Wheels-App laufen beide unter christoph8530-commits.github.io und teilen sich damit den Gerätespeicher.
 // Darum hat hier jeder Name die Vorsilbe „hw-“ (auch die Zwischenspeicher), sonst überschreiben sich die Apps gegenseitig.
@@ -52,14 +52,29 @@ function status(text, art) { $("status-text").textContent = text; $("status").cl
 // ---------- Sammlung zusammenfassen ----------
 // je Modell (oder frei eingetragenem Auto) ein Eintrag mit Anzahl, verpackt/lose und neuestem Foto
 let invCache = null;
+// Modell zu einem gespeicherten Eintrag. Ändert sich eine Kennung im Verzeichnis (Korrektur im Wiki),
+// findet die App das Auto über Toy-Nr. bzw. Name, Jahr und Serie wieder.
+const modellCache = new Map();
+function modellVon(z) {
+  if (!z.modell || !IDX) return null;
+  const direkt = IDX.modell(z.modell); if (direkt) return direkt;
+  if (!modellCache.has(z.modell)) {
+    const n = norm(z.name);
+    const kand = (z.toy && IDX.nachToy.get(z.toy)) || IDX.modelle.filter(m => m.n === n && m.jahr === z.jahr);
+    const passend = kand.filter(m => !z.serie || IDX.serien[m.s].name === z.serie);
+    modellCache.set(z.modell, (passend.length === 1 ? passend[0] : kand.length === 1 ? kand[0] : null));
+  }
+  return modellCache.get(z.modell);
+}
 function inventar() {
   if (invCache) return invCache;
   const map = new Map();
   for (const z of SAM) {
-    const key = z.modell || "frei|" + norm(z.name);
+    const mz = modellVon(z);
+    const key = mz?.id || z.modell || "frei|" + norm(z.name);
     let e = map.get(key);
     if (!e) {
-      const m = z.modell && IDX?.modell(z.modell);
+      const m = mz;
       e = { key, m: m || null, name: m?.name || z.name, jahr: m?.jahr ?? z.jahr ?? null, anzahl: 0, verpackt: 0, lose: 0, foto: null, zuletzt: "", eintraege: [] };
       map.set(key, e);
     }
@@ -104,7 +119,20 @@ function fotoUrl(pfad) {
   speicher?.fotoLesen(pfad).then(b => { FOTOURL[pfad] = b ? URL.createObjectURL(b) : null; spaeter(); }).catch(() => { FOTOURL[pfad] = null; });
   return null;
 }
-const wikiBild = (m, breite) => m?.bild ? bildUrl(m.bild, breite) : null;
+// Hat eine Ausführung im Wiki kein Foto (oft bei neuen 2. Farben), nehmen wir das einer anderen Ausführung desselben Modells:
+// zuerst gleiches Jahr und gleiche Serie, dann gleiches Jahr, dann die neueste
+const ersatzCache = new Map();
+function ersatz(m) {
+  if (!m || m.bild || !IDX) return null;
+  if (!ersatzCache.has(m.id)) {
+    const l = IDX.ausfuehrungen(m).filter(x => x.bild && x.id !== m.id);
+    const rang = x => (x.jahr === m.jahr ? 0 : 2) + (x.s === m.s ? 0 : 1);
+    ersatzCache.set(m.id, l.sort((a, b) => rang(a) - rang(b) || b.jahr - a.jahr)[0] || null);
+  }
+  return ersatzCache.get(m.id);
+}
+const wikiBild = (m, breite) => m?.bild ? bildUrl(m.bild, breite) : ersatz(m) ? bildUrl(ersatz(m).bild, breite) : null;
+const ersatzHinweis = m => !m?.bild && ersatz(m) ? `<span class="ersatz-hinweis">Bild: andere Farbe</span>` : "";
 function bildHtml(src, alt = "") {
   return src ? `<img src="${esc(src)}" alt="${esc(alt)}" loading="lazy" crossorigin="anonymous" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'leerbild'}))">` : `<div class="leerbild"></div>`;
 }
@@ -155,9 +183,9 @@ function metaText(m) {
 }
 function kachel(m, e) {   // Modell aus dem Verzeichnis, mit oder ohne Besitz
   const anzahl = e?.anzahl || 0;
-  const bild = wikiBild(m) || (e?.foto && fotoUrl(e.foto));   // Produktfoto aus dem Wiki, eigenes nur ohne
+  const bild = m.bild ? wikiBild(m) : (e?.foto && fotoUrl(e.foto)) || wikiBild(m);   // Wiki-Produktfoto, sonst eigenes, sonst andere Farbe
   return `<button type="button" class="karte${anzahl ? "" : " fehlt"}" data-modell="${esc(m.id)}">
-    <span class="bild">${bildHtml(bild, m.name)}</span>
+    <span class="bild">${bildHtml(bild, m.name)}${e?.foto && fotoUrl(e.foto) && !m.bild ? "" : ersatzHinweis(m)}</span>
     ${anzahl > 1 ? `<span class="stueck">×${anzahl}</span>` : ""}${anzahl ? `<span class="marke hat">✓ Hast du</span>` : `<span class="marke">Fehlt</span>`}
     <span class="info"><span class="k-titel">${esc(m.name)}</span><span class="meta">${metaText(m)}</span>${chips(m, e)}</span>
   </button>`;
@@ -345,7 +373,7 @@ function verlauf() {
     <div><span class="muted">Diesen Monat</span><span class="wert">${diesenMonat}</span><small class="muted">neu dazugekommen${imMonat ? ", " + eur(imMonat) : ""}</small></div>
     <div><span class="muted">Ausgegeben</span><span class="wert">${eur(ausgegeben)}</span><small class="muted">${mitPreis.length ? `${mitPreis.length} Einträge mit Preis` : "Preis beim Hinzufügen eintragen"}</small></div>`;
   $("h-liste").innerHTML = eintraege.length ? eintraege.map(z => {
-    const m = z.modell && IDX?.modell(z.modell);
+    const m = modellVon(z);
     return `<li><span class="streifen" style="background:var(--gruen)"></span>${bildHtml(wikiBild(m, 160) || (z.foto && fotoUrl(z.foto)), z.name)}
       <span class="name"${m ? ` data-modell="${esc(m.id)}" style="cursor:pointer"` : ""}>${esc(z.name)} ${Number(z.anzahl) > 1 ? `×${z.anzahl}` : ""}
         <span class="unter">${m ? `${m.jahr}${m.nr ? " · #" + esc(m.nr) : ""} · ${esc(serieVon(m).name)}` : "eigener Eintrag"} · ${z.zustand === "lose" ? "lose" : "verpackt"} · ${datumText(z.datum)} · ${esc(z.herkunft || "")}${z.notiz ? " · " + esc(z.notiz) : ""}</span></span>
@@ -400,7 +428,8 @@ function zeigeModell(id) {
   const m = IDX.modell(id); if (!m) return;
   const e = inventar().map.get(id), s = serieVon(m);
   $("k-titel").textContent = m.name;
-  $("k-bild").innerHTML = bildHtml(wikiBild(m, 600) || (e?.foto && fotoUrl(e.foto)), m.name);
+  $("k-bild").innerHTML = bildHtml(m.bild ? wikiBild(m, 600) : (e?.foto && fotoUrl(e.foto)) || wikiBild(m, 600), m.name) +
+    (!m.bild && !(e?.foto && fotoUrl(e.foto)) && ersatz(m) ? `<div class="muted" style="font-size:0.85rem;margin-top:4px">Für diese Ausführung gibt es im Wiki noch kein Foto – gezeigt wird ${esc(ersatz(m).jahr)} ${esc(ersatz(m).farbe || "eine andere Farbe")}.</div>` : "");
   const besitz = e ? `<div class="besitz hat"><strong>Hast du: ${e.anzahl}×</strong> (${[e.verpackt ? e.verpackt + " verpackt" : "", e.lose ? e.lose + " lose" : ""].filter(Boolean).join(", ")})</div>`
                    : `<div class="besitz fehlt"><strong>Fehlt dir noch.</strong></div>`;
   $("k-info").innerHTML = `${besitz}
@@ -790,7 +819,7 @@ async function neuesVerzeichnis() {
     const d = await speicher.lesen(PFADE.verzeichnis, { gross: true });
     merke("verzeichnis-geprueft", heute());
     if (d?.stand && (!IDX || d.stand > IDX.stand)) {
-      IDX = new Index(d); fuelleJahre(); fuelleSerien(); alles();
+      IDX = new Index(d); modellCache.clear(); ersatzCache.clear(); fuelleJahre(); fuelleSerien(); alles();
       try { await (await caches.open("hw-verzeichnis")).put("neuestes", new Response(JSON.stringify(d))); } catch (e) {}
     }
   } catch (e) {}
