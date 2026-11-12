@@ -13,7 +13,7 @@ const eur = v => v == null || isNaN(v) ? "–" : zahl.format(v) + " €";
 const betrag = s => { const n = parseFloat(String(s || "").replace(/\s/g, "").replace("€", "").replace(",", ".")); return isNaN(n) ? null : Math.round(n * 100) / 100; };
 const DIESES_JAHR = new Date().getFullYear();
 const TEST = new URLSearchParams(location.search).has("test");
-const VERSION = "1.11 (12.11.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
+const VERSION = "1.12 (12.11.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
 
 // Pokémon- und Hot-Wheels-App laufen beide unter christoph8530-commits.github.io und teilen sich damit den Gerätespeicher.
 // Darum hat hier jeder Name die Vorsilbe „hw-“ (auch die Zwischenspeicher), sonst überschreiben sich die Apps gegenseitig.
@@ -204,7 +204,7 @@ function alles() {
   if (!IDX) return;
   invCache = null;
   if ($("s-jahr").value) fuelleSerien();   // Stand der Serien in der Auswahl aktuell halten
-  bilanz(); sammlung(); serien(); fehlliste(); verlauf();
+  bilanz(); sammlung(); meineAutos(); serien(); fehlliste(); verlauf();
 }
 function bilanz() {
   const inv = inventar().liste;
@@ -276,6 +276,42 @@ function sammlung() {
     ? "Du hast noch kein potenziell wertvolles Auto. Hak „Fehlende zeigen“ an, dann siehst du, welche es in deinen Jahren gibt."
     : "Kein Auto passt zu diesen Filtern."}</div>`;
 }
+
+// Alle eigenen Autos, unabhängig von Suche und Filtern: nach Jahr (neueste zuerst) und Serie gruppiert
+function meineAutos() {
+  const inv = inventar().liste, wahl = $("m-jahr").value;
+  const jahre = [...new Set(inv.map(e => e.jahr ?? 0))].sort((a, b) => b - a);
+  $("m-jahr").innerHTML = `<option value="">Alle Jahre</option>` + jahre.map(j => `<option value="${j}">${j || "ohne Jahr"}</option>`).join("");
+  $("m-jahr").value = jahre.map(String).includes(wahl) ? wahl : "";
+  const liste = inv.filter(e => !$("m-jahr").value || String(e.jahr ?? 0) === $("m-jahr").value);
+  $("m-treffer").textContent = `${liste.reduce((a, e) => a + e.anzahl, 0)} Autos · ${liste.length} verschiedene`;
+  if (!liste.length) { $("m-liste").innerHTML = `<div class="leer">Noch keine Autos erfasst.</div>`; return; }
+  const html = jahre.filter(j => liste.some(e => (e.jahr ?? 0) === j)).map(j => {
+    const imJahr = liste.filter(e => (e.jahr ?? 0) === j);
+    const gruppen = new Map();   // Serie → Autos; frei Eingetragene unter „Eigene Einträge“
+    for (const e of imJahr) { const k = e.m ? e.m.s : "frei"; if (!gruppen.has(k)) gruppen.set(k, []); gruppen.get(k).push(e); }
+    const reihe = [...gruppen.keys()].sort((a, b) => a === "frei" ? 1 : b === "frei" ? -1
+      : (IDX.serien[a].sonder ? 1 : 0) - (IDX.serien[b].sonder ? 1 : 0) || IDX.serien[a].ab - IDX.serien[b].ab || IDX.serien[a].name.localeCompare(IDX.serien[b].name));
+    return `<section class="m-jahr"><h2>${j || "Ohne Jahr"} <span class="muted" style="font-weight:400;font-size:1rem">· ${imJahr.reduce((a, e) => a + e.anzahl, 0)} Autos</span></h2>` +
+      reihe.map(k => {
+        const autos = gruppen.get(k).sort((a, b) => (a.m?.snr || 0) - (b.m?.snr || 0) || nrZahl(a.m) - nrZahl(b.m) || (a.m?.var || 1) - (b.m?.var || 1));
+        if (k === "frei") return `<div class="m-serie"><div class="m-kopf"><h3>Eigene Einträge</h3><span class="num">${autos.length}</span></div><div class="raster">${autos.map(kachelFrei).join("")}</div></div>`;
+        const s = IDX.serien[k], st = serieStand(k);
+        return `<div class="m-serie"><button type="button" class="m-kopf" data-serie-liste="${k}"><h3>${esc(s.name)}${s.sonder ? ` <span class="chip">Sonderserie</span>` : ""}</h3>
+          <span class="num">${st.hat} / ${st.gesamt}${st.gesamt && st.hat === st.gesamt ? " ✓" : ""} ›</span></button>
+          <div class="raster">${autos.map(e => kachel(e.m, e)).join("")}</div></div>`;
+      }).join("") + `</section>`;
+  }).join("");
+  $("m-liste").innerHTML = html;
+}
+$("m-jahr").addEventListener("input", meineAutos);
+$("m-liste").addEventListener("click", e => {   // Serienkopf antippen: Checkliste der Serie in der Sammlung
+  const b = e.target.closest("[data-serie-liste]"); if (!b) return;
+  const s = IDX.serien[Number(b.dataset.serieListe)];
+  $("suche").value = ""; $("s-jahr").value = String(s.jahr); fuelleSerien(); $("s-serie").value = String(s.i);
+  $("s-doppelt").checked = false; $("s-wertvoll").checked = false; $("s-fehlend").checked = true; $("s-sort").value = "nr";
+  alles(); zeigeTab("sammlung");
+});
 
 // Serien eines Jahres mit Fortschritt
 let serienJahr = null, serienJahrVonHand = false;   // ohne eigene Wahl: das neueste deiner Jahre
@@ -383,7 +419,7 @@ function verlauf() {
 
 // ---------- Tabs, Filter ----------
 function zeigeTab(name) {
-  if (!["sammlung", "serien", "fehlliste", "verlauf"].includes(name)) name = "sammlung";
+  if (!["sammlung", "meine", "serien", "fehlliste", "verlauf"].includes(name)) name = "sammlung";
   tab = name;
   document.querySelectorAll("[data-tab]").forEach(b => { b.setAttribute("aria-selected", b.dataset.tab === name); b.tabIndex = b.dataset.tab === name ? 0 : -1; });
   document.querySelectorAll(".panel").forEach(p => { p.hidden = p.id !== "panel-" + name; });

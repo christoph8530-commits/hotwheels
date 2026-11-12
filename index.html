@@ -121,6 +121,11 @@ header { display: grid; gap: 6px; }
 .knopf.laedt { pointer-events: none; }
 
 .r-gruppe { font-size: 1rem; font-weight: 800; margin: 6px 0 0; }
+.m-jahr { display: grid; gap: 14px; }
+.m-serie { display: grid; gap: 8px; }
+.m-kopf { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; background: none; border: 0; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.m-kopf h3 { font-size: 1.02rem; font-weight: 800; margin: 0; }
+.m-kopf .num { color: var(--muted); font-size: 0.9rem; white-space: nowrap; }
 .r-gruppe:first-child { margin-top: 0; }
 .jahre { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .setliste { display: grid; gap: 8px; }
@@ -207,6 +212,7 @@ dialog::backdrop { background: rgb(8 10 16 / 0.7); }
     <input id="suche" type="search" autocomplete="off" aria-label="Auto suchen" placeholder="Suchen: Name, Serie, Toy-Nr. oder Jahr, z. B. Skyline, HYW18, 2025 123">
     <nav class="tabs" role="tablist" aria-label="Ansicht">
       <button type="button" role="tab" data-tab="sammlung" id="tab-sammlung">Sammlung</button>
+      <button type="button" role="tab" data-tab="meine" id="tab-meine">Meine Autos</button>
       <button type="button" role="tab" data-tab="serien" id="tab-serien">Serien</button>
       <button type="button" role="tab" data-tab="fehlliste" id="tab-fehlliste">Fehlliste</button>
       <button type="button" role="tab" data-tab="verlauf" id="tab-verlauf">Verlauf</button>
@@ -224,6 +230,14 @@ dialog::backdrop { background: rgb(8 10 16 / 0.7); }
       <span class="treffer" id="s-treffer"></span>
     </div>
     <div class="raster" id="s-raster"></div>
+  </div>
+
+  <div class="panel" id="panel-meine" role="tabpanel" aria-labelledby="tab-meine" hidden>
+    <div class="werkzeug">
+      <select id="m-jahr" aria-label="Jahr"><option value="">Alle Jahre</option></select>
+      <span class="treffer" id="m-treffer"></span>
+    </div>
+    <div id="m-liste" style="display:grid;gap:22px"></div>
   </div>
 
   <div class="panel" id="panel-serien" role="tabpanel" aria-labelledby="tab-serien" hidden>
