@@ -122,6 +122,16 @@ header { display: grid; gap: 6px; }
 
 .r-gruppe { font-size: 1rem; font-weight: 800; margin: 6px 0 0; }
 .m-jahr { display: grid; gap: 14px; }
+.box-dlg { width: min(760px, calc(100vw - 16px)); }
+.box { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--bg); display: grid; gap: 8px; }
+.box header { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.box header h3 { margin: 0; font-size: 1.1rem; }
+.box .fach { border-top: 1px dashed var(--line); padding-top: 6px; display: grid; gap: 2px; }
+.box .fach-name { font-weight: 800; font-size: 0.92rem; }
+.box .fach-name .muted { font-weight: 400; }
+.box button.auto { all: unset; cursor: pointer; display: block; font-size: 0.9rem; padding: 1px 0 1px 12px; }
+.box button.auto .mono { color: var(--muted); }
+.lagerort { padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); font-size: 0.95rem; }
 .m-serie { display: grid; gap: 8px; }
 .m-kopf { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; background: none; border: 0; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .m-kopf h3 { font-size: 1.02rem; font-weight: 800; margin: 0; }
@@ -235,6 +245,7 @@ dialog::backdrop { background: rgb(8 10 16 / 0.7); }
   <div class="panel" id="panel-meine" role="tabpanel" aria-labelledby="tab-meine" hidden>
     <div class="werkzeug">
       <select id="m-jahr" aria-label="Jahr"><option value="">Alle Jahre</option></select>
+      <button type="button" class="knopf voll" id="box-knopf">📦 Box-Plan</button>
       <span class="treffer" id="m-treffer"></span>
     </div>
     <div id="m-liste" style="display:grid;gap:22px"></div>
@@ -310,6 +321,14 @@ dialog::backdrop { background: rgb(8 10 16 / 0.7); }
   </div>
 </dialog>
 
+<dialog id="dlg-box" class="box-dlg" aria-labelledby="bx-titel">
+  <div class="dlg">
+    <div class="dlg-kopf"><h2 id="bx-titel">Box-Plan</h2><button type="button" class="zu" data-zu>Schließen</button></div>
+    <p class="muted" id="bx-info"></p>
+    <div id="bx-boxen" style="display:grid;gap:16px"></div>
+  </div>
+</dialog>
+
 <dialog id="dlg-frage" aria-labelledby="f-titel">
   <div class="dlg">
     <h2 id="f-titel">Eintrag löschen?</h2>
@@ -329,6 +348,7 @@ dialog::backdrop { background: rgb(8 10 16 / 0.7); }
         <label class="check"><input id="e-varianten" type="checkbox"> Farbvarianten einzeln zählen <span class="hinweis">(sonst reicht eine Farbe pro Modell)</span></label>
         <label class="check"><input id="e-sth" type="checkbox"> Super Treasure Hunts mitzählen</label>
         <label class="check"><input id="e-sonder" type="checkbox"> Premium und Sonderserien mitzählen <span class="hinweis">(Car Culture, Exklusiv-Serien, Multipacks …)</span></label>
+        <label class="check">📦 Autos pro Box <input id="e-boxgroesse" type="number" min="10" max="80" inputmode="numeric" style="width:5em;font:inherit;padding:4px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink)"> <span class="hinweis">(für den Box-Plan, z. B. 30 bei IKEA Samla 22 l)</span></label>
       </fieldset>
       <p class="muted">Die Schlüssel bleiben nur auf diesem Gerät gespeichert. Sie werden nur an GitHub bzw. Google geschickt.</p>
       <label>GitHub-Repo<input id="e-repo" type="text" autocomplete="off" spellcheck="false" placeholder="name/hotwheelsprivate">

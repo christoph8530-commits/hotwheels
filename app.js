@@ -13,7 +13,7 @@ const eur = v => v == null || isNaN(v) ? "–" : zahl.format(v) + " €";
 const betrag = s => { const n = parseFloat(String(s || "").replace(/\s/g, "").replace("€", "").replace(",", ".")); return isNaN(n) ? null : Math.round(n * 100) / 100; };
 const DIESES_JAHR = new Date().getFullYear();
 const TEST = new URLSearchParams(location.search).has("test");
-const VERSION = "1.12 (12.11.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
+const VERSION = "1.13 (14.11.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
 
 // Pokémon- und Hot-Wheels-App laufen beide unter christoph8530-commits.github.io und teilen sich damit den Gerätespeicher.
 // Darum hat hier jeder Name die Vorsilbe „hw-“ (auch die Zwischenspeicher), sonst überschreiben sich die Apps gegenseitig.
@@ -35,7 +35,7 @@ const merke = (k, v) => { try { v ? localStorage.setItem(P + k, v) : localStorag
 })();
 const EINST = { repo: lies("repo") || "christoph8530-commits/hotwheelsprivate", token: lies("token"), gemini: lies("gemini") };
 // Was gesammelt wird (nur auf diesem Gerät): Jahre, Farbvarianten einzeln, Super Treasure Hunts
-const OPT = (() => { const std = { jahre: [], varianten: true, sth: false, sonder: false };
+const OPT = (() => { const std = { jahre: [], varianten: true, sth: false, sonder: false, box: 30 };
   try { return { ...std, ...JSON.parse(lies("sammeln") || "{}") }; } catch (e) { return std; } })();
 
 let IDX = null;               // Modellverzeichnis
@@ -277,6 +277,74 @@ function sammlung() {
     : "Kein Auto passt zu diesen Filtern."}</div>`;
 }
 
+// ---------- Box-Plan ----------
+// Aufbewahrung in Boxen (z. B. IKEA Samla): Mainline-Jahre mit genug Autos (oder die angehakten Jahre) bekommen eigene Boxen,
+// sortiert nach Serie (erste Sammler-Nr.) und Sammler-Nr.; der Rest kommt in „Sonderserien & Ältere“ – Premium hinten,
+// große Packungen liegend oben drauf. Ist eine Box voll, wird an einer Seriengrenze geteilt.
+const PREMIUM = /Boulevard|Car Culture|Premium|Pop Culture|Team Transport|Fast & Furious Premium|Elite 64|RLC/i;
+const PACKUNG = /\d+-Pack|Pack$|Set$|Multipack|Gift Pack/i;
+const stueckVon = l => l.reduce((a, e) => a + e.anzahl, 0);
+function boxPlan() {
+  const inv = inventar().liste, gross = OPT.box || 30;
+  const mainlineJahr = e => e.m && !e.m.x ? e.m.jahr : null;
+  const proJahr = {};
+  for (const e of inv) { const j = mainlineJahr(e); if (j) proJahr[j] = (proJahr[j] || 0) + e.anzahl; }
+  const eigeneJahre = Object.keys(proJahr).map(Number).filter(j => OPT.jahre.includes(j) || proJahr[j] >= Math.ceil(gross / 2)).sort((a, b) => b - a);
+  const boxen = [], ort = new Map();
+  const sortNr = (a, b) => nrZahl(a.m) - nrZahl(b.m) || (a.m?.snr || 0) - (b.m?.snr || 0) || (a.m?.var || 1) - (b.m?.var || 1);
+  // Fächer (Trennkarten) auf Boxen verteilen, ohne eine Serie zu zerreißen (außer sie allein ist größer als eine Box)
+  const verteile = (titel, faecher, bereich) => {
+    let box = null, teil = 1;
+    const neueBox = () => { box = { titel, faecher: [], stueck: 0 }; boxen.push(box); };
+    for (const f of faecher) {
+      const n = stueckVon(f.autos);
+      if (!box || (box.stueck + n > gross && box.stueck > 0 && !f.oben)) neueBox();
+      box.faecher.push(f); box.stueck += n;
+    }
+    const meine = boxen.slice(boxen.length - (boxen.filter(b => b.titel === titel).length));
+    meine.forEach((b, i) => { if (meine.length > 1) b.titel = `${titel} (${i + 1}/${meine.length})`; if (bereich) b.bereich = bereich(b); });
+  };
+  for (const j of eigeneJahre) {
+    const autos = inv.filter(e => mainlineJahr(e) === j), serien = new Map();
+    for (const e of autos) { if (!serien.has(e.m.s)) serien.set(e.m.s, []); serien.get(e.m.s).push(e); }
+    const faecher = [...serien].sort((a, b) => IDX.serien[a[0]].ab - IDX.serien[b[0]].ab)
+      .map(([si, l]) => ({ name: IDX.serien[si].name, autos: l.sort(sortNr) }));
+    verteile(`${j} Mainline`, faecher, b => { const nr = b.faecher.flatMap(f => f.autos.map(e => nrZahl(e.m))).filter(n => n < 999); return nr.length ? `#${String(Math.min(...nr)).padStart(3, "0")}–#${String(Math.max(...nr)).padStart(3, "0")}` : ""; });
+  }
+  const rest = inv.filter(e => !eigeneJahre.includes(mainlineJahr(e)));
+  if (rest.length) {
+    const gruppen = new Map();   // Fach-Schlüssel → {name, autos, art}
+    for (const e of rest) {
+      const s = e.m && IDX.serien[e.m.s];
+      const art = !e.m ? 3 : PACKUNG.test(s.name) ? 4 : PREMIUM.test(s.name) ? 2 : e.m.x ? 0 : 1;   // 0 Sonderserien, 1 ältere Mainline, 2 Premium, 3 eigene, 4 Packungen
+      const k = art === 1 ? `j${e.m.jahr}` : art === 3 ? "frei" : art === 4 ? "pack" : `s${e.m.s}`;
+      const name = art === 1 ? `${e.m.jahr} Mainline` : art === 3 ? "Eigene Einträge" : art === 4 ? "Packungen – liegend oben drauf" : `${s.name} ${e.m.jahr}`;
+      if (!gruppen.has(k)) gruppen.set(k, { name, autos: [], art, jahr: e.m?.jahr || 0, oben: art === 4 });
+      gruppen.get(k).autos.push(e);
+    }
+    const faecher = [...gruppen.values()].sort((a, b) => a.art - b.art || b.jahr - a.jahr || a.name.localeCompare(b.name));
+    faecher.forEach(f => f.autos.sort(sortNr));   // ältere Mainline ohne eigene Box: einfach nach Sammler-Nr.
+    verteile("Sonderserien & Ältere", faecher);
+  }
+  boxen.forEach((b, i) => { b.nr = i + 1; b.titel = `Box ${i + 1} · ${b.titel}`; for (const f of b.faecher) for (const e of f.autos) ort.set(e.key, { box: b, fach: f }); });
+  return { boxen, ort, gross };
+}
+function lagerortHtml(key) {
+  const o = boxPlan().ort.get(key);
+  return o ? `<div class="lagerort">📦 <strong>${esc(o.box.titel)}</strong> · Trennkarte <strong>${esc(o.fach.name)}</strong></div>` : "";
+}
+function zeigeBoxPlan() {
+  const { boxen, gross } = boxPlan();
+  $("bx-info").textContent = `${boxen.length} ${boxen.length === 1 ? "Box" : "Boxen"} à ca. ${gross} Autos (änderbar in den Einstellungen). Karten stehend auf der langen Kante, jede zweite umdrehen. Auto antippen: Details.`;
+  $("bx-boxen").innerHTML = boxen.map(b => `<section class="box"><header><h3>📦 ${esc(b.titel)}</h3><span class="muted">${b.bereich ? esc(b.bereich) + " · " : ""}${b.stueck} / ${gross}</span></header>
+    ${b.faecher.map(f => `<div class="fach"><span class="fach-name">${esc(f.name)} <span class="muted">· ${stueckVon(f.autos)}</span></span>
+      ${f.autos.map(e => `<button type="button" class="auto" ${e.m ? `data-modell="${esc(e.m.id)}"` : `data-frei="${esc(e.key)}"`}>${e.m?.nr ? `<span class="mono">#${esc(e.m.nr)}</span> ` : e.m?.snr ? `<span class="mono">${e.m.snr}/${IDX.serien[e.m.s].gesamt}</span> ` : ""}${esc(e.name)}${e.m?.farbe ? ` <span class="muted">· ${esc(e.m.farbe)}</span>` : ""}${e.anzahl > 1 ? ` ×${e.anzahl}` : ""}${e.lose && !e.verpackt ? " <span class=\"muted\">· lose</span>" : ""}</button>`).join("")}</div>`).join("")}</section>`).join("")
+    || `<div class="leer">Noch keine Autos erfasst.</div>`;
+  if (!$("dlg-box").open) $("dlg-box").showModal();
+}
+$("box-knopf").addEventListener("click", zeigeBoxPlan);
+$("bx-boxen").addEventListener("click", e => { const b = e.target.closest("[data-modell],[data-frei]"); if (!b) return; $("dlg-box").close(); });
+
 // Alle eigenen Autos, unabhängig von Suche und Filtern: nach Jahr (neueste zuerst) und Serie gruppiert
 function meineAutos() {
   const inv = inventar().liste, wahl = $("m-jahr").value;
@@ -474,6 +542,7 @@ function zeigeModell(id) {
     ${chips(m)}${m.zusatz ? `<div class="muted">${esc(m.zusatz)}</div>` : ""}
     ${e?.eintraege.some(z => z.bezahlt != null) ? `<div>Bezahlt: <strong class="num">${eur(e.eintraege.reduce((a, z) => a + (Number(z.bezahlt) || 0), 0))}</strong> für ${e.anzahl} Stück</div>` : ""}
     ${wertvoll(m) ? `<div class="besitz hat" style="font-size:0.92rem"><strong>Potenziell wertvoll</strong> – ${esc(wertGrund(m))}. Ein Blick auf die verkauften Angebote lohnt sich.</div>` : ""}
+    ${e ? lagerortHtml(e.key) : ""}
     ${preisLinks(m)}
     <div><a href="https://hotwheels.fandom.com/wiki/Special:Search?query=${encodeURIComponent(m.name)}" target="_blank" rel="noopener">Im Hot Wheels Wiki ansehen</a></div>`;
   $("k-aktionen").innerHTML = schreibbar ? `<button type="button" class="knopf voll" id="k-mehr">${e ? "Weiteres Exemplar" : "Hinzufügen"}</button>` : "";
@@ -726,7 +795,9 @@ $("form-neu").addEventListener("submit", async ev => {
     SAM = await speicher.aendern(PFADE.sammlung, l => l.some(x => x.id === id) ? l : [...l, neu], `Zugang: ${anzahl}× ${eintrag.name}`);
     speicherId = null;
     merkeStand(); alles();
-    $("dlg-neu").close(); toast(`Gespeichert: ${eintrag.name}`);
+    $("dlg-neu").close();
+    const ort = boxPlan().ort.get(eintrag.modell ? (modellVon(eintrag)?.id || eintrag.modell) : "frei|" + norm(eintrag.name));
+    toast(ort ? `Gespeichert – kommt in ${ort.box.titel}, ${ort.fach.name}` : `Gespeichert: ${eintrag.name}`);
   } catch (e) {
     meldung.textContent = e?.code === "zeit" ? "GitHub hat nicht geantwortet (Verbindung zu langsam?). Bitte nochmal auf Speichern tippen."
       : e?.code === "offline" ? "Keine Internetverbindung – bitte später nochmal speichern."
@@ -759,7 +830,7 @@ $("f-ja").addEventListener("click", async () => {
 function oeffneEinstellungen() {
   $("e-repo").value = EINST.repo; $("e-token").value = EINST.token; $("e-gemini").value = EINST.gemini;
   $("e-jahre").innerHTML = (IDX ? [...IDX.jahre].reverse() : []).map(j => `<label><input type="checkbox" value="${j}"${OPT.jahre.includes(j) ? " checked" : ""}>${j}</label>`).join("");
-  $("e-varianten").checked = OPT.varianten; $("e-sth").checked = OPT.sth; $("e-sonder").checked = OPT.sonder;
+  $("e-varianten").checked = OPT.varianten; $("e-sth").checked = OPT.sth; $("e-sonder").checked = OPT.sonder; $("e-boxgroesse").value = OPT.box;
   $("e-ergebnis").innerHTML = `<div class="muted">App-Version ${VERSION}${IDX ? ` · Verzeichnis vom ${datumText(IDX.stand)}, ${IDX.modelle.length} Modelle` : ""}</div>
     <button type="button" class="knopf" id="e-aktualisieren" style="justify-self:start">App aktualisieren</button>`;
   $("e-aktualisieren").onclick = aktualisieren;
@@ -775,6 +846,7 @@ $("form-einstellungen").addEventListener("submit", async ev => {
   ev.preventDefault();
   OPT.jahre = [...$("e-jahre").querySelectorAll("input:checked")].map(i => Number(i.value));
   OPT.varianten = $("e-varianten").checked; OPT.sth = $("e-sth").checked; OPT.sonder = $("e-sonder").checked;
+  OPT.box = Math.max(10, Math.min(80, parseInt($("e-boxgroesse").value, 10) || 30));
   merke("sammeln", JSON.stringify(OPT)); alles();
   const neuerSchluessel = EINST.repo !== $("e-repo").value.trim() || EINST.token !== $("e-token").value.trim();
   EINST.repo = $("e-repo").value.trim(); EINST.token = $("e-token").value.trim(); EINST.gemini = $("e-gemini").value.trim();
