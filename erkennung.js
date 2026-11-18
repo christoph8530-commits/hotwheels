@@ -117,7 +117,7 @@ const SCHEMA_LESEN = { type: "OBJECT", properties: {
   ist_auto: { type: "BOOLEAN", description: "true, wenn ein Hot-Wheels-Auto oder seine Verpackung (auch nur die Rückseite) zu sehen ist" },
   verpackt: { type: "BOOLEAN", description: "true, wenn das Auto noch in der Blisterverpackung auf der Karte steckt" },
   name: { type: "STRING", description: "Modellname wie auf Karte oder Unterboden, z. B. '69 Dodge Charger" },
-  toy: { type: "STRING", description: "Toy-Nummer, meist 3 Buchstaben + 2 Ziffern wie HYW18. Auf der Kartenrückseite steht sie als Code wie JKX57-ND710 (G1) 21A – dann den ganzen Code. Leer, wenn nicht lesbar" },
+  toy: { type: "STRING", description: "Toy-Nummer, meist 3 Buchstaben + 2 Ziffern wie HYW18. NICHT die Sortimentsnummer (steht bei „Asst.“ oder senkrecht am Kartenrand, z. B. HBL96). Auf der Kartenrückseite steht sie als Code wie JKX57-ND710 (G1) 21A – dann den ganzen Code. Leer, wenn nicht lesbar" },
   sammlernr: { type: "STRING", description: "Sammler-Nummer wie 123/250; leer, wenn nicht sichtbar" },
   serie: { type: "STRING", description: "Serienname auf der Karte, z. B. HW Dream Garage" },
   serie_nr: { type: "STRING", description: "Platz in der Serie wie 2/5" },
@@ -130,6 +130,9 @@ const SCHEMA_LESEN = { type: "OBJECT", properties: {
 const AUFTRAG_LESEN = `Auf dem Foto ist ein Hot-Wheels-Auto, entweder verpackt auf der Karte oder ausgepackt.
 Lies alles ab, was das Modell bestimmt: Modellname, Toy-Nummer (steht klein auf der Karte, z. B. HYW18), Sammler-Nummer (z. B. 123/250),
 Serienname und Platz in der Serie (z. B. HW Dream Garage 2/5). Bei einem ausgepackten Auto steht der Name meist auf dem Unterboden.
+Achtung: Die Sortimentsnummer (z. B. „Asst. HBL96“ oder senkrecht am Rand der Vorderseite) ist NICHT die Toy-Nummer.
+Das Foto kann gedreht sein. Bei Car Culture und Packungen stehen die Modellnamen oft senkrecht neben dem Blister (z. B. „2018 TOYOTA 4RUNNER“).
+Sind mehrere Autos in der Packung: alle Namen mit „ + “ getrennt angeben, z. B. „2018 Toyota 4Runner + Subaru Crosstrek“.
 Ist die Rückseite der Karte fotografiert: Dort steht ein Code wie „JKX57-ND710 (G1) 21A“ (oft oben beim Aufhängeloch) – das ist die Toy-Nummer.
 Auf der Rückseite sind oft mehrere Autos der Serie abgebildet; den Namen dann leer lassen, der Code genügt.
 Bei einem Multipack (mehrere Autos in einer Packung): den Packungsnamen als Serie, z. B. „Hot Wheels RacerVerse Disney“.
@@ -139,8 +142,9 @@ const SCHEMA_WAHL = { type: "OBJECT", properties: {
   wahl: { type: "INTEGER", description: "Nummer des passenden Vergleichsbilds, 0 wenn keines passt" },
   sicher: { type: "BOOLEAN" } }, required: ["wahl", "sicher"] };
 
+const jahrKurz = w => w.replace(/^(19|20)(\d\d)$/, "$2");   // „2018 Toyota 4Runner“ = „'18 Toyota 4Runner“
 const aehnlich = (a, b) => {   // Anteil gemeinsamer Wörter
-  const x = new Set(norm(a).split(" ").filter(Boolean)), y = new Set(norm(b).split(" ").filter(Boolean));
+  const x = new Set(norm(a).split(" ").filter(Boolean).map(jahrKurz)), y = new Set(norm(b).split(" ").filter(Boolean).map(jahrKurz));
   if (!x.size || !y.size) return 0;
   let g = 0; for (const w of x) if (y.has(w)) g++;
   return g / Math.max(x.size, y.size);
@@ -156,18 +160,22 @@ const abstand = (a, b) => {    // Levenshtein für kurze Toy-Nummern
 
 // Antwort von Gemini → Kandidaten mit Punkten (höchste zuerst)
 export function zuordnen(r, index, hinweis = "") {
-  const punkte = new Map();
+  const punkte = new Map(), nachbarn = [];
   const plus = (m, p) => punkte.set(m.id, (punkte.get(m.id) || 0) + p);
   const toy = normToy(hinweis && istToy(norm(hinweis).replace(/ /g, "")) ? hinweis : r?.toy);
   if (toy.length >= 4) {
     const t = nachToyNr(toy, index);   // inkl. Korrektur von O/0, I/1 …
     for (const m of t.genau) plus(m, 100);
-    for (const m of t.aehnlich) plus(m, 45);
+    for (const m of t.aehnlich) nachbarn.push(m);   // erst nach dem Namensvergleich werten
   }
-  const name = r?.name || (hinweis && !toy ? hinweis : "");
+  // bei Packungen liefert Gemini „Name 1 + Name 2“ – verglichen wird mit dem ersten, die Packung ergänzt die App
+  const name = (r?.name || (hinweis && !toy ? hinweis : "")).split(/\s+\+\s+/)[0];
   const nr = (String(r?.sammlernr || "").match(/^\s*(\d{1,3})\s*\//) || [])[1]?.padStart(3, "0");
   const snr = parseInt((String(r?.serie_nr || "").match(/^\s*(\d+)\s*\//) || [])[1], 10);
   const farbWoerter = norm(r?.farbe).split(" ").filter(w => w.length > 2);
+  // Nummern mit einem abweichenden Zeichen zählen nur, wenn der Name nicht widerspricht
+  // (sonst landet eine Sortimentsnummer wie HBL96 bei einem fremden Auto)
+  for (const m of nachbarn) if (!name || aehnlich(name, m.name) >= 0.5) plus(m, 45);
   // Serie bzw. Packung: Gemini liest bei Multipacks oft nur den Packungsnamen („Hot Wheels RacerVerse Disney“)
   let serienTreffer = [], besteAehnl = 0;
   for (const text of [r?.serie, r?.name].filter(t => t && norm(t).split(" ").length >= 2))
@@ -196,6 +204,12 @@ export function zuordnen(r, index, hinweis = "") {
     if (farbWoerter.length && m.farbe && farbWoerter.some(w => norm(m.farbe).includes(w))) plus(m, 8);
   }
   // bei Gleichstand neuere zuerst – im Laden findet man meist aktuelle Autos
+  // Packung mit mehreren Namen: die Ausführung gewinnt, deren Packungspartner (gleiche Toy-Nr. und Serie) die übrigen Namen trägt
+  const weitereNamen = String(r?.name || "").split(/\s+\+\s+/).slice(1).filter(Boolean);
+  if (weitereNamen.length) for (const id of punkte.keys()) {
+    const m = index.modell(id), partner = m.toy ? (index.nachToy.get(m.toy) || []).filter(x => x.s === m.s && x.id !== m.id) : [];
+    if (partner.some(x => weitereNamen.some(n => aehnlich(n, x.name) >= 0.5))) plus(m, 60);
+  }
   return [...punkte].map(([id, p]) => ({ m: index.modell(id), p })).sort((a, b) => b.p - a.p || b.m.jahr - a.m.jahr);
 }
 
@@ -207,7 +221,8 @@ const SCHEMA_RUECKSEITE = { type: "OBJECT", properties: {
 }, required: ["code", "toy"] };
 const AUFTRAG_RUECKSEITE = `Das ist die Rückseite einer Hot-Wheels-Verpackung. Irgendwo darauf steht ein Code wie „JKX60-ND710 (G1) 21A“
 (manchmal auch nur „JKX60“), oft oben neben dem Aufhängeloch, manchmal unten. Lies diesen Code genau ab. Die Toy-Nummer ist der Teil vor dem Bindestrich: meist 3 Buchstaben und 2 Ziffern.
-Achte auf Verwechslungen wie 0/O, 1/I, 5/S, 8/B. Nichts erfinden – unlesbar heisst leer.`;
+Achte auf Verwechslungen wie 0/O, 1/I, 5/S, 8/B. Nichts erfinden – unlesbar heisst leer.
+Nicht verwechseln mit der Sortimentsnummer „Asst. HBL96“ (ohne Bindestrich-Zusatz) oder Zahlen wie 684173-A.`;
 
 // Kandidaten zu einer gelesenen Toy-Nr.: genau, sonst mit einem abweichenden Zeichen (Lesefehler)
 const ZU_BUCHSTABE = { 0: "O", 1: "I", 5: "S", 8: "B", 2: "Z", 6: "G" };
@@ -252,10 +267,18 @@ export async function rueckseite(foto, index, schluessel) {
 export async function bestimme(foto, index, schluessel, fortschritt = () => {}, hinweis = "") {
   fortschritt("Gemini liest das Auto …");
   const bild = await alsTeil(foto);
-  const r = await gemini(schluessel, [{ text: AUFTRAG_LESEN }, bild], SCHEMA_LESEN);
+  let r = await gemini(schluessel, [{ text: AUFTRAG_LESEN }, bild], SCHEMA_LESEN);
   let anfragen = 1;
+  let liste = r?.ist_auto === false ? [] : zuordnen(r, index, hinweis);
+  if (!liste.length || liste[0].p < 40) {   // nichts Brauchbares gelesen: einmal mit dem stärkeren Modell
+    fortschritt("Lese genauer nach …");
+    try {
+      const r2 = await gemini(schluessel, [{ text: AUFTRAG_LESEN }, bild], SCHEMA_LESEN, MODELL_STARK); anfragen++;
+      const l2 = r2?.ist_auto === false ? [] : zuordnen(r2, index, hinweis);
+      if ((l2[0]?.p || 0) > (liste[0]?.p || 0) || r?.ist_auto === false) { r = r2; liste = l2; }
+    } catch (e) { if (e.code === "kontingent" || e.code === "offline") throw e; }
+  }
   if (r && r.ist_auto === false) return { antwort: r, tipp: [], status: "pruefen", anfragen };
-  let liste = zuordnen(r, index, hinweis);
   const oben = liste[0]?.p || 0, zweit = liste[1]?.p || 0;
   let status = oben >= 100 && (liste.filter(x => x.p >= 100).length === 1 || oben - zweit >= 20) ? "ok"
              : oben >= 60 && oben - zweit >= 25 ? "ok" : "pruefen";

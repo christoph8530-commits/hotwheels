@@ -13,7 +13,7 @@ const eur = v => v == null || isNaN(v) ? "–" : zahl.format(v) + " €";
 const betrag = s => { const n = parseFloat(String(s || "").replace(/\s/g, "").replace("€", "").replace(",", ".")); return isNaN(n) ? null : Math.round(n * 100) / 100; };
 const DIESES_JAHR = new Date().getFullYear();
 const TEST = new URLSearchParams(location.search).has("test");
-const VERSION = "1.13 (14.11.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
+const VERSION = "1.14 (18.11.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
 
 // Pokémon- und Hot-Wheels-App laufen beide unter christoph8530-commits.github.io und teilen sich damit den Gerätespeicher.
 // Darum hat hier jeder Name die Vorsilbe „hw-“ (auch die Zwischenspeicher), sonst überschreiben sich die Apps gegenseitig.
@@ -574,6 +574,10 @@ document.addEventListener("click", e => {
 
 // ---------- Auto hinzufügen / prüfen ----------
 let neuFoto = null, wahl = null, modus = "neu", erkennung = null, kandidaten = [], frei = false;
+// Packungen mit mehreren Autos (2-Pack, 4-Pack …) haben eine gemeinsame Toy-Nr. – dann werden alle zusammen erfasst
+let pack = [], nurEinzeln = false;
+const packVon = m => m?.toy ? (IDX.nachToy.get(m.toy) || []).filter(x => x.s === m.s) : [];
+const packText = ids => ids.map(id => IDX.modell(id).name).join(" + ");
 const kannErkennen = () => !!EINST.gemini && !!IDX;
 function zeigeKandidaten(titel) {
   if (!kandidaten.length) { $("n-kandidaten").hidden = true; return; }
@@ -583,15 +587,28 @@ function zeigeKandidaten(titel) {
       <span><strong>${esc(m.name)}</strong><br><span class="muted">${m.jahr}${m.nr ? " · #" + esc(m.nr) : ""} · ${esc(serieVon(m).name)}${m.farbe ? " · " + esc(m.farbe) : ""}${VAR_TEXT(m) ? " · " + esc(VAR_TEXT(m)) : ""}${m.exkl ? " · " + esc(m.exkl) : ""}${m.marken?.includes("STH") ? " · Super TH" : m.marken?.includes("TH") ? " · TH" : ""}</span></span></button>`; }).join("")}</div>` +
     (kandidaten.length > 30 ? `<span class="muted">… und ${kandidaten.length - 30} weitere. Grenze die Suche ein, z. B. mit dem Jahr.</span>` : "");
 }
-function markiereKandidat() { document.querySelectorAll("[data-kandidat]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.kandidat === wahl))); }
+function markiereKandidat() { document.querySelectorAll("[data-kandidat]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.kandidat === wahl || pack.includes(b.dataset.kandidat)))); }
 $("n-kandidaten").addEventListener("click", e => { const b = e.target.closest("[data-kandidat]"); if (b) { waehle(b.dataset.kandidat); } });
 function waehle(id) {
   wahl = id; frei = false; $("n-frei").hidden = true;
+  const p = packVon(IDX.modell(id));
+  pack = p.length > 1 && !nurEinzeln ? [id, ...p.map(x => x.id).filter(x => x !== id)] : [];
   markiereKandidat(); zeigeBesitz();
 }
 function zeigeBesitz() {
   const feld = $("n-besitz"), m = wahl && IDX.modell(wahl);
   if (!m) { feld.hidden = true; return; }
+  if (pack.length > 1) {   // Packung: alle Autos zeigen
+    const s = serieVon(m), alleDa = pack.every(id => hat(id));
+    feld.hidden = false; feld.className = "besitz " + (alleDa ? "hat" : "fehlt");
+    feld.innerHTML = `<strong class="gross-text">📦 ${pack.length}-Pack${alleDa ? " – hast du schon" : ""}</strong>
+      <div class="muted" style="font-size:0.88rem">${esc(s.name)} · ${m.jahr}${m.toy ? " · " + esc(m.toy) : ""} – ${modus === "neu" ? "beim Speichern werden alle Autos erfasst" : "alle Autos der Packung"}</div>
+      ${pack.map(id => { const x = IDX.modell(id); return `<div class="zeile" style="margin-top:8px">${wikiBild(x) ? `<img src="${esc(wikiBild(x))}" alt="" crossorigin="anonymous">` : ""}<div>
+        <strong>${esc(x.name)}</strong><div class="muted" style="font-size:0.88rem">${esc(x.farbe || "")}</div><div>${hat(id) ? `✓ hast du (${hat(id)}×)` : "fehlt dir noch"}</div></div></div>`; }).join("")}
+      ${modus === "neu" ? `<button type="button" class="knopf" id="n-nur-eins" style="margin-top:8px">Nur ${esc(m.name)} speichern</button>` : ""}`;
+    if ($("n-nur-eins")) $("n-nur-eins").onclick = () => { nurEinzeln = true; waehle(wahl); };
+    return;
+  }
   const e = inventar().map.get(m.id), s = serieVon(m);
   const auto = `${esc(m.name)} · ${m.jahr}${m.nr ? " · #" + esc(m.nr) : ""} · ${esc(s.name)} ${m.snr ? m.snr + "/" + s.gesamt : ""}${m.farbe ? " · " + esc(m.farbe) : ""}${VAR_TEXT(m) ? " · " + esc(VAR_TEXT(m)) : ""}${m.exkl ? " · " + esc(m.exkl) : ""}${m.toy ? " · " + esc(m.toy) : ""}`;
   // andere Farben desselben Platzes oder dasselbe Modell aus anderen Jahren
@@ -624,7 +641,7 @@ $("n-frei-knopf").addEventListener("click", () => { frei = true; wahl = null; $(
 function oeffneNeu(vor = {}) {
   const m = vor.modus || "neu";
   if (m === "neu" && !schreibbar) { toast("Zum Speichern bitte zuerst GitHub in den Einstellungen einrichten."); return; }
-  $("form-neu").reset(); sucheVonHand = false; neuFoto = null; wahl = null; erkennung = null; kandidaten = []; frei = false; speicherId = null;
+  $("form-neu").reset(); sucheVonHand = false; neuFoto = null; wahl = null; erkennung = null; kandidaten = []; frei = false; speicherId = null; pack = []; nurEinzeln = false;
   $("n-vorschau").innerHTML = `<div class="leerbild"></div>`;
   $("n-meldung").className = "meldung";
   $("n-meldung").textContent = kannErkennen() ? "Verpackt: am sichersten die Rückseite (Code wie JKX60-ND710, oft oben beim Aufhängeloch). Sonst die Vorderseite oder das Auto fotografieren, oder unten suchen."
@@ -706,6 +723,8 @@ $("n-rueck").addEventListener("change", async e => {
       meldung.textContent = `Gelesen „${r.korrigiert}“ – vermutlich Toy-Nr. ${r.toy}: ${m.name}, ${m.jahr}${m.farbe ? ", " + m.farbe : ""}. Stimmt das Bild? Sonst die Nummer unten eintippen.`;
     } else if (r.genau.length === 1) {
       meldung.textContent = `Erkannt über die Toy-Nr. ${r.toy}: ${m.name}, ${m.jahr}${m.farbe ? ", " + m.farbe : ""}.`;
+    } else if (pack.length > 1) {
+      meldung.textContent = `${pack.length}-Pack erkannt über die Toy-Nr. ${r.toy}: ${packText(pack)}.`;
     } else if (r.genau.length) {
       meldung.textContent = `Toy-Nr. ${r.toy} gibt es ${r.genau.length}× – bitte die richtige Ausführung antippen.`;
       zeigeKandidaten("Welche Ausführung ist es?");
@@ -750,7 +769,10 @@ async function erkenne() {
     }
     waehle(kandidaten[0]);
     const m = IDX.modell(kandidaten[0]);
-    if (erkennung.status === "ok") {
+    if (erkennung.status === "ok" && pack.length > 1) {
+      meldung.textContent = `${pack.length}-Pack erkannt: ${packText(pack)}. Stimmen die Bilder?`;
+      $("n-korrigieren").hidden = false; $("n-kandidaten").hidden = true;
+    } else if (erkennung.status === "ok") {
       meldung.textContent = `Erkannt: ${m.name}, ${m.jahr}${m.nr ? " #" + m.nr : ""}${m.farbe ? ", " + m.farbe : ""}${VAR_TEXT(m) ? " (" + VAR_TEXT(m) + ")" : ""}. Stimmt das Bild?`;
       $("n-korrigieren").hidden = kandidaten.length < 2;
       $("n-kandidaten").hidden = true;
@@ -780,6 +802,7 @@ $("form-neu").addEventListener("submit", async ev => {
     const m = wahl && IDX.modell(wahl);
     if (!m) { meldung.textContent = "Noch kein Auto gewählt: fotografieren, suchen oder frei eintragen."; return; }
     eintrag = { modell: m.id, name: m.name, jahr: m.jahr, nr: m.nr, toy: m.toy, serie: serieVon(m).name, ...(m.var ? { var: m.var } : {}) };
+    if (pack.length > 1) eintrag.name = m.name;   // weitere Autos der Packung folgen unten
   }
   const anzahl = Math.max(1, Math.min(99, parseInt($("n-anzahl").value, 10) || 1));
   const id = speicherId ??= neueId();
@@ -790,14 +813,25 @@ $("form-neu").addEventListener("submit", async ev => {
     const mitWikiBild = !!(eintrag.modell && IDX.modell(eintrag.modell)?.bild);
     if (neuFoto && !mitWikiBild) { foto = `${PFADE.fotoOrdner}${id}.jpg`; await speicher.fotoHochladen(foto, neuFoto, `Foto: ${eintrag.name}`); FOTOURL[foto] = URL.createObjectURL(neuFoto); }
     meldung.textContent = "Speichert …";
-    const neu = { id, ...eintrag, zustand: $("n-zustand").value, anzahl, foto, herkunft: $("n-herkunft").value, bezahlt: betrag($("n-preis").value),
-      datum: $("n-datum").value || heute(), notiz: $("n-notiz").value.trim(), erstellt: new Date().toISOString() };
-    SAM = await speicher.aendern(PFADE.sammlung, l => l.some(x => x.id === id) ? l : [...l, neu], `Zugang: ${anzahl}× ${eintrag.name}`);
+    const gemeinsam = { zustand: $("n-zustand").value, anzahl, herkunft: $("n-herkunft").value, datum: $("n-datum").value || heute(), notiz: $("n-notiz").value.trim(), erstellt: new Date().toISOString() };
+    const bezahlt = betrag($("n-preis").value);
+    // Packung: ein Eintrag je Auto, gleiche Daten; der Preis wird aufgeteilt (Rest auf das erste Auto)
+    const ids = !frei && pack.length > 1 ? pack : [eintrag.modell];
+    const anteil = bezahlt == null ? null : Math.floor(bezahlt / ids.length * 100) / 100;
+    const neue = ids.map((mid, i) => {
+      const x = mid && IDX.modell(mid);
+      const basis = i === 0 ? eintrag : { modell: x.id, name: x.name, jahr: x.jahr, nr: x.nr, toy: x.toy, serie: serieVon(x).name, ...(x.var ? { var: x.var } : {}) };
+      return { id: i === 0 ? id : `${id}-${i}`, ...basis, ...gemeinsam, foto: i === 0 ? foto : null,
+        bezahlt: bezahlt == null ? null : i === 0 ? Math.round((bezahlt - anteil * (ids.length - 1)) * 100) / 100 : anteil,
+        ...(ids.length > 1 ? { pack: `${ids.length}-Pack ${x?.toy || ""}`.trim() } : {}) };
+    });
+    const titel = neue.length > 1 ? `${neue.length}-Pack ${packText(ids)}` : eintrag.name;
+    SAM = await speicher.aendern(PFADE.sammlung, l => [...l, ...neue.filter(n => !l.some(x => x.id === n.id))], `Zugang: ${anzahl}× ${titel}`);
     speicherId = null;
     merkeStand(); alles();
     $("dlg-neu").close();
     const ort = boxPlan().ort.get(eintrag.modell ? (modellVon(eintrag)?.id || eintrag.modell) : "frei|" + norm(eintrag.name));
-    toast(ort ? `Gespeichert – kommt in ${ort.box.titel}, ${ort.fach.name}` : `Gespeichert: ${eintrag.name}`);
+    toast(ort ? `Gespeichert${neue.length > 1 ? ` (${neue.length} Autos)` : ""} – kommt in ${ort.box.titel}, ${ort.fach.name}` : `Gespeichert: ${titel}`);
   } catch (e) {
     meldung.textContent = e?.code === "zeit" ? "GitHub hat nicht geantwortet (Verbindung zu langsam?). Bitte nochmal auf Speichern tippen."
       : e?.code === "offline" ? "Keine Internetverbindung – bitte später nochmal speichern."
