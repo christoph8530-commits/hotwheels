@@ -13,7 +13,7 @@ const eur = v => v == null || isNaN(v) ? "–" : zahl.format(v) + " €";
 const betrag = s => { const n = parseFloat(String(s || "").replace(/\s/g, "").replace("€", "").replace(",", ".")); return isNaN(n) ? null : Math.round(n * 100) / 100; };
 const DIESES_JAHR = new Date().getFullYear();
 const TEST = new URLSearchParams(location.search).has("test");
-const VERSION = "1.14 (18.11.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
+const VERSION = "1.15 (20.11.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
 
 // Pokémon- und Hot-Wheels-App laufen beide unter christoph8530-commits.github.io und teilen sich damit den Gerätespeicher.
 // Darum hat hier jeder Name die Vorsilbe „hw-“ (auch die Zwischenspeicher), sonst überschreiben sich die Apps gegenseitig.
@@ -588,12 +588,40 @@ function zeigeKandidaten(titel) {
     (kandidaten.length > 30 ? `<span class="muted">… und ${kandidaten.length - 30} weitere. Grenze die Suche ein, z. B. mit dem Jahr.</span>` : "");
 }
 function markiereKandidat() { document.querySelectorAll("[data-kandidat]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.kandidat === wahl || pack.includes(b.dataset.kandidat)))); }
+$("n-besitz").addEventListener("click", e => {
+  const b = e.target.closest("[data-checkliste]"); if (!b) return;
+  const si = IDX.serien[Number(b.dataset.checkliste)];
+  $("dlg-neu").close();
+  $("suche").value = ""; $("s-jahr").value = String(si.jahr); fuelleSerien(); $("s-serie").value = String(si.i);
+  $("s-doppelt").checked = false; $("s-wertvoll").checked = false; $("s-fehlend").checked = true; $("s-sort").value = "nr";
+  alles(); zeigeTab("sammlung"); $("panel-sammlung").scrollIntoView({ block: "start" });
+});
 $("n-kandidaten").addEventListener("click", e => { const b = e.target.closest("[data-kandidat]"); if (b) { waehle(b.dataset.kandidat); } });
 function waehle(id) {
   wahl = id; frei = false; $("n-frei").hidden = true;
   const p = packVon(IDX.modell(id));
   pack = p.length > 1 && !nurEinzeln ? [id, ...p.map(x => x.id).filter(x => x !== id)] : [];
   markiereKandidat(); zeigeBesitz();
+}
+// Stand der Serie zum gewählten Auto: wie viele du hast, was dieses Auto ändern würde, welche du daraus hast
+function serienBlock(m, neuIds = [m.id]) {
+  const s = serieVon(m), st = serieStand(m.s);
+  const eigene = IDX.jeSerie[m.s].filter(x => hat(x.id));
+  const einheitenVorher = new Set(eigene.filter(zaehlt).map(einheit));
+  const dazu = new Set(neuIds.map(id => IDX.modell(id)).filter(x => zaehlt(x) && !einheitenVorher.has(einheit(x))).map(einheit)).size;
+  const komplett = st.gesamt && st.hat === st.gesamt;
+  const kopf = komplett ? `✓ Serie <strong>${esc(s.name)} ${m.jahr}</strong> komplett (${st.hat}/${st.gesamt})`
+    : !eigene.length ? `Serie <strong>${esc(s.name)} ${m.jahr}</strong>: noch keines – das wäre dein erstes`
+    : `Serie <strong>${esc(s.name)} ${m.jahr}</strong>: du hast <strong>${st.hat} von ${st.gesamt}</strong>${dazu ? ` – mit ${neuIds.length > 1 ? "dieser Packung" : "diesem Auto"} ${st.hat + dazu}${st.hat + dazu === st.gesamt ? " ✓ komplett!" : ""}` : ""}`;
+  const liste = eigene.length ? `<div class="muted" style="font-size:0.86rem">Du hast daraus: ${eigene.slice(0, 8).map(x => esc(x.name) + (x.var ? ` (${x.var}. Farbe)` : "")).join(" · ")}${eigene.length > 8 ? " …" : ""}</div>` : "";
+  return `<div class="serien-info"><div>📚 ${kopf}</div>${liste}<button type="button" class="knopf" data-checkliste="${m.s}" style="justify-self:start">Checkliste der Serie</button></div>`;
+}
+// andere Ausführungen desselben Modells (andere Farbe oder anderes Jahr), die du schon hast – gut sichtbar
+function ausfuehrungenBlock(m) {
+  const verwandt = IDX.ausfuehrungen(m).filter(x => x.id !== m.id && hat(x.id)).sort((a, b) => b.jahr - a.jahr);
+  if (!verwandt.length) return "";
+  return `<div class="serien-info"><div>🚗 <strong>Dieses Modell hast du schon in ${verwandt.length === 1 ? "einer anderen Ausführung" : verwandt.length + " anderen Ausführungen"}:</strong></div>
+    <div style="font-size:0.9rem">${verwandt.slice(0, 5).map(x => `${x.jahr} · ${esc(serieVon(x).name)}${x.farbe ? " · " + esc(x.farbe) : ""}`).join("<br>")}${verwandt.length > 5 ? "<br>…" : ""}</div></div>`;
 }
 function zeigeBesitz() {
   const feld = $("n-besitz"), m = wahl && IDX.modell(wahl);
@@ -606,14 +634,12 @@ function zeigeBesitz() {
       ${pack.map(id => { const x = IDX.modell(id); return `<div class="zeile" style="margin-top:8px">${wikiBild(x) ? `<img src="${esc(wikiBild(x))}" alt="" crossorigin="anonymous">` : ""}<div>
         <strong>${esc(x.name)}</strong><div class="muted" style="font-size:0.88rem">${esc(x.farbe || "")}</div><div>${hat(id) ? `✓ hast du (${hat(id)}×)` : "fehlt dir noch"}</div></div></div>`; }).join("")}
       ${modus === "neu" ? `<button type="button" class="knopf" id="n-nur-eins" style="margin-top:8px">Nur ${esc(m.name)} speichern</button>` : ""}`;
+    feld.insertAdjacentHTML("beforeend", serienBlock(m, pack));
     if ($("n-nur-eins")) $("n-nur-eins").onclick = () => { nurEinzeln = true; waehle(wahl); };
     return;
   }
   const e = inventar().map.get(m.id), s = serieVon(m);
   const auto = `${esc(m.name)} · ${m.jahr}${m.nr ? " · #" + esc(m.nr) : ""} · ${esc(s.name)} ${m.snr ? m.snr + "/" + s.gesamt : ""}${m.farbe ? " · " + esc(m.farbe) : ""}${VAR_TEXT(m) ? " · " + esc(VAR_TEXT(m)) : ""}${m.exkl ? " · " + esc(m.exkl) : ""}${m.toy ? " · " + esc(m.toy) : ""}`;
-  // andere Farben desselben Platzes oder dasselbe Modell aus anderen Jahren
-  const verwandt = IDX.ausfuehrungen(m).filter(x => x.id !== m.id && hat(x.id));
-  const verwandtText = verwandt.length ? `<div class="muted" style="font-size:0.88rem">Andere Ausführungen hast du: ${verwandt.slice(0, 4).map(x => `${x.jahr}${VAR_TEXT(x) ? " (" + esc(VAR_TEXT(x)) + ")" : ""}`).join(", ")}${verwandt.length > 4 ? " …" : ""}</div>` : "";
   feld.hidden = false;
   feld.className = "besitz " + (e ? "hat" : "fehlt");
   const wert = wertvoll(m);
@@ -621,7 +647,7 @@ function zeigeBesitz() {
   feld.innerHTML = `${wert ? `<div class="wert-alarm">⚠ Potenziell wertvoll! <span>${esc(wertGrund(m))}</span></div>` : ""}<div class="zeile">${wikiBild(m) ? `<img src="${esc(wikiBild(m))}" alt="Bild aus dem Verzeichnis" crossorigin="anonymous">` : ""}<div>
     ${e ? `<strong class="gross-text">Hast du schon</strong><div>${e.anzahl}× (${[e.verpackt ? e.verpackt + " verpackt" : "", e.lose ? e.lose + " lose" : ""].filter(Boolean).join(", ")}).${modus === "neu" ? " Das wäre ein weiteres Exemplar." : ""}</div>`
         : `<strong class="gross-text">Fehlt dir noch!</strong>`}
-    <div class="muted" style="font-size:0.88rem">${auto}</div>${verwandtText}</div></div>${wert ? preisLinks(m) : ""}`;
+    <div class="muted" style="font-size:0.88rem">${auto}</div></div></div>${serienBlock(m)}${ausfuehrungenBlock(m)}${wert ? preisLinks(m) : ""}`;
 }
 let vibriertFuer = null;   // pro erkanntem Auto nur einmal vibrieren
 function setzeModus(m) {
@@ -991,7 +1017,6 @@ async function start() {
   fuelleJahre(); fuelleSerien();
   $("s-fehlend").checked = lies("fehlende-zeigen") === "1";
   zeigeTab(location.hash.slice(1));
-  $("fab-pruefen").hidden = false;
   alles();
   await verbinde();
   neuesVerzeichnis();

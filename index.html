@@ -131,6 +131,7 @@ header { display: grid; gap: 6px; }
 .box .fach-name .muted { font-weight: 400; }
 .box button.auto { all: unset; cursor: pointer; display: block; font-size: 0.9rem; padding: 1px 0 1px 12px; }
 .box button.auto .mono { color: var(--muted); }
+.serien-info { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); display: grid; gap: 4px; font-size: 0.95rem; }
 .lagerort { padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); font-size: 0.95rem; }
 .m-serie { display: grid; gap: 8px; }
 .m-kopf { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; background: none; border: 0; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
@@ -275,7 +276,7 @@ dialog::backdrop { background: rgb(8 10 16 / 0.7); }
   <p class="quelle" id="quelle">Modelldaten und Bilder: <a href="https://hotwheels.fandom.com" target="_blank" rel="noopener">Hot Wheels Wiki</a> (CC BY-SA).</p>
 </div>
 
-<div class="fabs"><button type="button" class="fab zweit" id="fab-pruefen" hidden>Prüfen</button><button type="button" class="fab" id="fab" hidden>＋ Auto</button></div>
+<div class="fabs"><button type="button" class="fab zweit" id="fab-pruefen" hidden aria-hidden="true">Prüfen</button><button type="button" class="fab" id="fab" hidden>＋ Auto</button></div>
 <div class="toast" id="toast" role="status" hidden></div>
 
 <dialog id="dlg-neu" aria-labelledby="neu-titel">
