@@ -13,7 +13,7 @@ const eur = v => v == null || isNaN(v) ? "–" : zahl.format(v) + " €";
 const betrag = s => { const n = parseFloat(String(s || "").replace(/\s/g, "").replace("€", "").replace(",", ".")); return isNaN(n) ? null : Math.round(n * 100) / 100; };
 const DIESES_JAHR = new Date().getFullYear();
 const TEST = new URLSearchParams(location.search).has("test");
-const VERSION = "1.15 (20.11.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
+const VERSION = "1.16 (20.11.2026)";      // in den Einstellungen sichtbar – hilft beim Prüfen, ob die neue Fassung geladen ist
 
 // Pokémon- und Hot-Wheels-App laufen beide unter christoph8530-commits.github.io und teilen sich damit den Gerätespeicher.
 // Darum hat hier jeder Name die Vorsilbe „hw-“ (auch die Zwischenspeicher), sonst überschreiben sich die Apps gegenseitig.
@@ -583,8 +583,8 @@ function zeigeKandidaten(titel) {
   if (!kandidaten.length) { $("n-kandidaten").hidden = true; return; }
   $("n-kandidaten").hidden = false;
   $("n-kandidaten").innerHTML = `<strong>${esc(titel)}</strong><div class="reihe">${kandidaten.slice(0, 30).map(id => { const m = IDX.modell(id);
-    return `<button type="button" class="kandidat" data-kandidat="${esc(id)}" aria-pressed="${id === wahl}">${bildHtml(wikiBild(m, 200), m.name)}${hat(id) ? `<span class="hat-punkt">✓ ${hat(id)}</span>` : ""}
-      <span><strong>${esc(m.name)}</strong><br><span class="muted">${m.jahr}${m.nr ? " · #" + esc(m.nr) : ""} · ${esc(serieVon(m).name)}${m.farbe ? " · " + esc(m.farbe) : ""}${VAR_TEXT(m) ? " · " + esc(VAR_TEXT(m)) : ""}${m.exkl ? " · " + esc(m.exkl) : ""}${m.marken?.includes("STH") ? " · Super TH" : m.marken?.includes("TH") ? " · TH" : ""}</span></span></button>`; }).join("")}</div>` +
+    return `<button type="button" class="kandidat" data-kandidat="${esc(id)}" aria-pressed="${id === wahl}"><span class="bild-rahmen">${bildHtml(wikiBild(m, 200), m.name)}${ersatzHinweis(m)}</span>${hat(id) ? `<span class="hat-punkt">✓ ${hat(id)}</span>` : ""}
+      <span><strong>${esc(m.name)}</strong>${m.farbe ? `<br><strong>${esc(m.farbe)}</strong>` : ""}<br><span class="muted">${m.jahr}${m.nr ? " · #" + esc(m.nr) : ""} · ${esc(serieVon(m).name)}${VAR_TEXT(m) ? " · " + esc(VAR_TEXT(m)) : ""}${m.exkl ? " · " + esc(m.exkl) : ""}${m.marken?.includes("STH") ? " · Super TH" : m.marken?.includes("TH") ? " · TH" : ""}</span></span></button>`; }).join("")}</div>` +
     (kandidaten.length > 30 ? `<span class="muted">… und ${kandidaten.length - 30} weitere. Grenze die Suche ein, z. B. mit dem Jahr.</span>` : "");
 }
 function markiereKandidat() { document.querySelectorAll("[data-kandidat]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.kandidat === wahl || pack.includes(b.dataset.kandidat)))); }
@@ -644,7 +644,7 @@ function zeigeBesitz() {
   feld.className = "besitz " + (e ? "hat" : "fehlt");
   const wert = wertvoll(m);
   if (wert && vibriertFuer !== m.id) { vibriertFuer = m.id; try { navigator.vibrate?.([120, 60, 120]); } catch (err) {} }
-  feld.innerHTML = `${wert ? `<div class="wert-alarm">⚠ Potenziell wertvoll! <span>${esc(wertGrund(m))}</span></div>` : ""}<div class="zeile">${wikiBild(m) ? `<img src="${esc(wikiBild(m))}" alt="Bild aus dem Verzeichnis" crossorigin="anonymous">` : ""}<div>
+  feld.innerHTML = `${wert ? `<div class="wert-alarm">⚠ Potenziell wertvoll! <span>${esc(wertGrund(m))}</span></div>` : ""}<div class="zeile">${wikiBild(m) ? `<span class="bild-rahmen"><img src="${esc(wikiBild(m))}" alt="Bild aus dem Verzeichnis" crossorigin="anonymous">${ersatzHinweis(m)}</span>` : ""}<div>
     ${e ? `<strong class="gross-text">Hast du schon</strong><div>${e.anzahl}× (${[e.verpackt ? e.verpackt + " verpackt" : "", e.lose ? e.lose + " lose" : ""].filter(Boolean).join(", ")}).${modus === "neu" ? " Das wäre ein weiteres Exemplar." : ""}</div>`
         : `<strong class="gross-text">Fehlt dir noch!</strong>`}
     <div class="muted" style="font-size:0.88rem">${auto}</div></div></div>${serienBlock(m)}${ausfuehrungenBlock(m)}${wert ? preisLinks(m) : ""}`;
