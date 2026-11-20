@@ -180,13 +180,16 @@ export function zuordnen(r, index, hinweis = "") {
   let serienTreffer = [], besteAehnl = 0;
   for (const text of [r?.serie, r?.name].filter(t => t && norm(t).split(" ").length >= 2))
     index.serien.forEach((s, i) => {
-      const a = aehnlich(text, s.name.replace(/\s*\d+-Pack$/i, ""));
+      // „Hammer Drop“ = „Car Culture: Hammer Drop“: auch den Teil nach dem Doppelpunkt vergleichen
+      const ohnePack = s.name.replace(/\s*\d+-Pack$/i, "");
+      const a = Math.max(aehnlich(text, ohnePack), aehnlich(text, ohnePack.split(":").pop()));
       if (a < 0.6 || a < besteAehnl) return;
       if (a > besteAehnl) { besteAehnl = a; serienTreffer = []; }
       serienTreffer.push(i);   // nur die am besten passenden Serien
     });
   if (serienTreffer.length && serienTreffer.length <= 40)
-    for (const i of serienTreffer) for (const m of index.jeSerie[i]) plus(m, 30 + (r?.jahr && m.jahr === r.jahr ? 10 : 0));
+    for (const i of serienTreffer) for (const m of index.jeSerie[i])
+      plus(m, 30 + (r?.jahr && m.jahr === r.jahr ? 10 : 0) + (snr && m.snr === snr ? 25 : 0));   // Serie + Platz (2/5) passt
   const nameCache = new Map();   // Ähnlichkeit je Modellname nur einmal rechnen
   for (const m of index.modelle) {
     if (!nameCache.has(m.n)) nameCache.set(m.n, name ? aehnlich(name, m.name) : 0);
@@ -220,7 +223,8 @@ const SCHEMA_RUECKSEITE = { type: "OBJECT", properties: {
   toy: { type: "STRING", description: "nur der Teil vor dem Bindestrich, z. B. JKX60" },
 }, required: ["code", "toy"] };
 const AUFTRAG_RUECKSEITE = `Das ist die Rückseite einer Hot-Wheels-Verpackung. Irgendwo darauf steht ein Code wie „JKX60-ND710 (G1) 21A“
-(manchmal auch nur „JKX60“), oft oben neben dem Aufhängeloch, manchmal unten. Lies diesen Code genau ab. Die Toy-Nummer ist der Teil vor dem Bindestrich: meist 3 Buchstaben und 2 Ziffern.
+(manchmal auch nur „JKX60“). Er steht oft oben neben dem Aufhängeloch, manchmal unten rechts – auch SENKRECHT gedruckt am Rand –
+und die Toy-Nummer steht oft zusätzlich einzeln über dem Barcode (z. B. „HRV77“). Lies diesen Code genau ab. Die Toy-Nummer ist der Teil vor dem Bindestrich: meist 3 Buchstaben und 2 Ziffern.
 Achte auf Verwechslungen wie 0/O, 1/I, 5/S, 8/B. Nichts erfinden – unlesbar heisst leer.
 Nicht verwechseln mit der Sortimentsnummer „Asst. HBL96“ (ohne Bindestrich-Zusatz) oder Zahlen wie 684173-A.`;
 
@@ -251,16 +255,28 @@ export function nachToyNr(text, index) {
 }
 export async function rueckseite(foto, index, schluessel) {
   const bild = await alsTeil(foto, 3072);   // gross lassen: der Code ist sehr klein gedruckt
-  let r = await gemini(schluessel, [{ text: AUFTRAG_RUECKSEITE }, bild], SCHEMA_RUECKSEITE);
-  let t = nachToyNr(`${r.toy || ""} ${r.code || ""}`, index);
-  if (!t.genau.length) {   // nichts Eindeutiges: einmal mit dem stärkeren Modell nachlesen
+  // Versuche nacheinander, bis die Toy-Nr. eindeutig ist: Rückseiten-Auftrag, allgemeiner Auftrag (liest senkrechte
+  // Codes oft besser), dann das stärkere Modell. Überlastung bei einem Versuch ist kein Abbruch.
+  const versuche = [
+    [AUFTRAG_RUECKSEITE, SCHEMA_RUECKSEITE, MODELL],
+    [AUFTRAG_LESEN, SCHEMA_LESEN, MODELL],
+    [AUFTRAG_RUECKSEITE, SCHEMA_RUECKSEITE, MODELL_STARK],
+  ];
+  let best = { genau: [], aehnlich: [], toy: "" }, code = "", fehler = null;
+  for (const [auftrag, schema, modell] of versuche) {
     try {
-      const r2 = await gemini(schluessel, [{ text: AUFTRAG_RUECKSEITE }, bild], SCHEMA_RUECKSEITE, MODELL_STARK);
-      const t2 = nachToyNr(`${r2.toy || ""} ${r2.code || ""}`, index);
-      if (t2.genau.length || (!t.aehnlich.length && t2.aehnlich.length)) { r = r2; t = t2; }
-    } catch (e) { if (e.code === "kontingent" || e.code === "offline") throw e; }
+      const r = await gemini(schluessel, [{ text: auftrag }, bild], schema, modell);
+      const t = nachToyNr(`${r.toy || ""} ${r.code || ""}`, index);
+      if (t.genau.length || (!best.genau.length && !best.aehnlich.length && t.aehnlich.length)) { best = t; code = [r.code, r.toy].filter(Boolean)[0] || ""; }
+      if (!code) code = [r.code, r.toy].filter(Boolean)[0] || "";
+      if (best.genau.length) break;
+    } catch (e) {
+      if (e.code === "kontingent" || e.code === "offline" || e.code === "schluessel") throw e;
+      fehler = e;
+    }
   }
-  return { ...t, code: [r.code, r.toy].filter(Boolean)[0] || "" };
+  if (!best.genau.length && !best.aehnlich.length && !code && fehler) throw fehler;
+  return { ...best, code };
 }
 
 // Ganze Erkennung. Ergebnis: {antwort, tipp: [ids], status: "ok"|"pruefen", anfragen}
